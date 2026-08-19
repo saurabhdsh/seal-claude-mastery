@@ -7,8 +7,8 @@ import { useNavigate } from "react-router-dom";
 export function LoginPage() {
   const { login, user } = useAuth();
   const nav = useNavigate();
-  const [email, setEmail] = useState("superadmin@seal.local");
-  const [password, setPassword] = useState("SealAdmin!2026");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -83,7 +83,6 @@ export function LoginPage() {
           <Button className="w-full py-3" disabled={busy}>
             {busy ? "Signing in…" : "Sign in"}
           </Button>
-          <p className="text-[11px] text-[#aeaeb2]">Seed: superadmin / SealAdmin!2026</p>
         </form>
       </section>
     </div>
