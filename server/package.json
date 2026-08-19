@@ -18,6 +18,7 @@
     "db:generate": "prisma generate",
     "generate:questions": "tsx src/scripts/generateQuestions.ts",
     "generate:level": "tsx src/scripts/generateLevel.ts",
+    "validate:anthropic": "tsx src/scripts/validateAnthropic.ts",
     "validate:question-bank": "tsx src/scripts/validateQuestionBank.ts",
     "recalculate:analytics": "tsx src/scripts/recalculateAnalytics.ts"
   },
