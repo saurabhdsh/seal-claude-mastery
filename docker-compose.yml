@@ -75,8 +75,7 @@ services:
     container_name: seal-web
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "8080:80"
+      - "3000:80"
     depends_on:
       api:
         condition: service_healthy
