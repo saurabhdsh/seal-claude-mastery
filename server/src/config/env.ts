@@ -35,9 +35,12 @@ const schema = z.object({
   ANTHROPIC_CRITIC_MODEL: z.string().optional(),
   OPENAI_API_KEY: z.string().optional().default(""),
   OPENAI_MODEL: z.string().default("gpt-4.1"),
+  BEDROCK_ENABLED: z.preprocess((v) => v === "true" || v === true, z.boolean().default(false)),
+  AWS_REGION: z.string().default("us-east-1"),
+  BEDROCK_MODEL_ID: z.string().optional(),
   AI_PROVIDER: z.preprocess(
     (v) => (v === "" || v == null ? undefined : v),
-    z.enum(["openai", "anthropic"]).optional(),
+    z.enum(["openai", "anthropic", "bedrock"]).optional(),
   ),
   AI_MONTHLY_BUDGET_USD: z.coerce.number().default(250),
   AI_GENERATION_CONCURRENCY: z.coerce.number().default(2),
@@ -62,8 +65,9 @@ export const env = (parsed.success ? parsed.data : schema.parse({
   JWT_REFRESH_SECRET: process.env.JWT_REFRESH_SECRET ?? "test-refresh-secret-32-chars-min",
 })) as z.infer<typeof schema>;
 
-export function activeProviderName(): "openai" | "anthropic" {
-  if (env.AI_PROVIDER) return env.AI_PROVIDER;
+export function activeProviderName(): "openai" | "anthropic" | "bedrock" {
+  if (env.AI_PROVIDER) return env.AI_PROVIDER as "openai" | "anthropic" | "bedrock";
+  if (env.BEDROCK_ENABLED) return "bedrock";
   if (env.OPENAI_API_KEY) return "openai";
   return "anthropic";
 }

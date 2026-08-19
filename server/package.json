@@ -25,6 +25,7 @@
     "seed": "tsx src/seed/index.ts"
   },
   "dependencies": {
+    "@anthropic-ai/bedrock-sdk": "^0.32.4",
     "@anthropic-ai/sdk": "^0.39.0",
     "@prisma/client": "^6.1.0",
     "argon2": "^0.41.1",

@@ -1193,7 +1193,7 @@ export function AIControlPage() {
   const qc = useQueryClient();
   const [moduleId, setModuleId] = useState("");
   const [count, setCount] = useState(5);
-  const [provider, setProvider] = useState<"openai" | "anthropic">("openai");
+  const [provider, setProvider] = useState<"openai" | "anthropic" | "bedrock">("bedrock");
   const [sessionJobId, setSessionJobId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ moduleCode: string; count: number } | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -1264,9 +1264,25 @@ export function AIControlPage() {
 
   if (q.isLoading) return <Skeleton className="h-40" />;
   const t = q.data?.totals ?? {};
+  const ps = q.data?.providerStatus ?? {};
   return (
     <div className="space-y-8">
       <h1 className="font-serif text-4xl">AI control center</h1>
+
+      {/* Provider status banner */}
+      <div className={`rounded-xl border px-4 py-3 text-sm ${ps.ready ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+        {ps.ready ? (
+          <span>
+            <strong>AI ready</strong> — using{" "}
+            {ps.active === "bedrock"
+              ? `AWS Bedrock (${ps.bedrockModel || ps.bedrockRegion})`
+              : ps.active === "openai" ? "OpenAI" : "Anthropic Claude"}
+          </span>
+        ) : (
+          <span><strong>AI not configured</strong> — set BEDROCK_ENABLED=true or add an API key in the server .env</span>
+        )}
+      </div>
+
       <div className="grid gap-4 md:grid-cols-4">
         <MetricCard label="AI calls" value={t.calls ?? 0} />
         <MetricCard label="Generated" value={t.questionsGenerated ?? 0} />
@@ -1281,9 +1297,11 @@ export function AIControlPage() {
         }}
       >
         <Field label="Provider">
-          <select className={inputClass} value={provider} onChange={(e) => setProvider(e.target.value as "openai" | "anthropic")}>
-            <option value="openai">OpenAI</option>
-            <option value="anthropic">Anthropic Claude</option>
+          <select className={inputClass} value={provider} onChange={(e) => setProvider(e.target.value as "openai" | "anthropic" | "bedrock")}>
+            {ps.bedrock && <option value="bedrock">AWS Bedrock (IAM role)</option>}
+            {ps.anthropicConfigured && <option value="anthropic">Anthropic Claude</option>}
+            {ps.openaiConfigured && <option value="openai">OpenAI</option>}
+            {!ps.bedrock && !ps.anthropicConfigured && !ps.openaiConfigured && <option value="bedrock">No provider configured</option>}
           </select>
         </Field>
         <Field label="Module">
@@ -1322,8 +1340,8 @@ export function AIControlPage() {
         <ErrorState error={new Error(formatGenerationError(sessionJob.error) || "Generation failed")} />
       )}
       <p className="text-xs text-[var(--ink-muted)]">
-        Set OPENAI_API_KEY (default) or ANTHROPIC_API_KEY in the server environment. Auto-approve is disabled. Items land as
-        DRAFT / AI_VALIDATED for human review.
+        On EC2: set BEDROCK_ENABLED=true with the WeaveEC2BedrockRole IAM role — no API keys needed.
+        Auto-approve is disabled. Items land as DRAFT / AI_VALIDATED for human review.
       </p>
       <section className="space-y-3">
         <h2 className="text-sm uppercase tracking-[0.14em] text-[var(--ink-muted)]">Recent generations</h2>

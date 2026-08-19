@@ -24,6 +24,7 @@ import { aiModels } from "../../config/env.js";
 import { logger } from "../../lib/logger.js";
 import { evaluateWrittenAnswer } from "../../services/ai/answerEvaluator.js";
 import { defaultDifficultyMix, defaultLevelMix, levelsForTemplateMode, STANDARD_QUESTION_COUNT } from "../../services/ai/assessmentAssembler.js";
+import { activeProviderName } from "../../config/env.js";
 import { fingerprintQuestion } from "../../services/questions/fingerprint.js";
 import { dashboardMetrics, questionQuality, competencyWeakness } from "../../services/analytics/queries.js";
 import { computeBankStatus, isPendingReview } from "../../services/questions/bankStatus.js";
@@ -1003,6 +1004,20 @@ adminRouter.get("/ai", requirePermission("admin.ai"), async (_req, res, next) =>
     const failed = await prisma.aIQuestionGeneration.count({ where: { status: "FAILED" } });
     const generated = await prisma.question.count({ where: { generationModel: { not: null } } });
     const cfg = await prisma.systemConfiguration.findUnique({ where: { key: "ai_models" } });
+    const activeName = activeProviderName();
+    const providerStatus = {
+      active: activeName,
+      bedrock: process.env.BEDROCK_ENABLED === "true",
+      bedrockRegion: process.env.AWS_REGION ?? "us-east-1",
+      bedrockModel: process.env.BEDROCK_MODEL_ID ?? "",
+      anthropicConfigured: !!process.env.ANTHROPIC_API_KEY,
+      openaiConfigured: !!process.env.OPENAI_API_KEY,
+      ready: activeName === "bedrock"
+        ? process.env.BEDROCK_ENABLED === "true"
+        : activeName === "openai"
+          ? !!process.env.OPENAI_API_KEY
+          : !!process.env.ANTHROPIC_API_KEY,
+    };
     res.json({
       generations: gens,
       totals: {
@@ -1016,6 +1031,7 @@ adminRouter.get("/ai", requirePermission("admin.ai"), async (_req, res, next) =>
         estimatedCostUsd: usage._sum.estimatedCostUsd,
       },
       settings: cfg?.value ?? {},
+      providerStatus,
     });
   } catch (e) {
     next(e);
