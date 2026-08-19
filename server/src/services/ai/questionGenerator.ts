@@ -361,7 +361,11 @@ function toGenerateError(err: unknown): HttpError {
     return new HttpError(422, formatStoredError(err), "AI_SCHEMA");
   }
   if (/api.?key|not configured|401|incorrect api/i.test(message)) {
-    return new HttpError(502, "AI provider rejected the request. Check OPENAI_API_KEY or ANTHROPIC_API_KEY.", "AI_AUTH");
+    return new HttpError(
+      502,
+      "AI provider rejected the request. Check OPENAI_API_KEY, ANTHROPIC_API_KEY, or ensure BEDROCK_ENABLED=true with the EC2 IAM role.",
+      "AI_AUTH",
+    );
   }
   if (/model did not return json|unexpected token|json at/i.test(message)) {
     return new HttpError(
@@ -388,7 +392,7 @@ export async function generateQuestionSet(params: {
   targetDifficulty?: DifficultyBand;
   typeDistribution?: Partial<Record<QuestionType, number>>;
   actorId?: string;
-  provider?: "openai" | "anthropic";
+  provider?: "openai" | "anthropic" | "bedrock";
   generationId?: string;
 }) {
   const mod = await prisma.module.findUnique({

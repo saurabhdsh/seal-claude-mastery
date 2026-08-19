@@ -1,7 +1,7 @@
 import AnthropicBedrock from "@anthropic-ai/bedrock-sdk";
 import { env, aiModels } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
-import { AIUsagePurpose } from "@prisma/client";
+import { Decimal } from "@prisma/client/runtime/library";
 import { estimateCost } from "./anthropicProvider.js";
 import type { AIProvider, CompletionInput, CompletionResult } from "./anthropicProvider.js";
 
@@ -39,12 +39,11 @@ export class BedrockProvider implements AIProvider {
 
     await prisma.aIUsageLog.create({
       data: {
-        provider: "bedrock",
         model,
         purpose: input.purpose,
         inputTokens,
         outputTokens,
-        estimatedCostUsd,
+        estimatedCostUsd: new Decimal(estimatedCostUsd),
         actorId: input.actorId,
         resourceType: input.resourceType,
         resourceId: input.resourceId,

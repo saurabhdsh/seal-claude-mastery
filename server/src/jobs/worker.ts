@@ -24,7 +24,7 @@ export async function startWorkers() {
           moduleId: string;
           count: number;
           actorId?: string;
-          provider?: "openai" | "anthropic";
+          provider?: "openai" | "anthropic" | "bedrock";
           runCritic?: boolean;
           generationId?: string;
         };

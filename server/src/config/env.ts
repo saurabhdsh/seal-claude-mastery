@@ -66,26 +66,36 @@ export const env = (parsed.success ? parsed.data : schema.parse({
 })) as z.infer<typeof schema>;
 
 export function activeProviderName(): "openai" | "anthropic" | "bedrock" {
-  if (env.AI_PROVIDER) return env.AI_PROVIDER as "openai" | "anthropic" | "bedrock";
+  // If Bedrock is enabled, always prefer it (EC2 IAM role based), even if AI_PROVIDER was set to "anthropic".
   if (env.BEDROCK_ENABLED) return "bedrock";
+  if (env.AI_PROVIDER) return env.AI_PROVIDER as "openai" | "anthropic" | "bedrock";
   if (env.OPENAI_API_KEY) return "openai";
   return "anthropic";
 }
 
 export const aiModels = {
   get default() {
-    return activeProviderName() === "openai" ? env.OPENAI_MODEL : env.ANTHROPIC_MODEL;
+    const p = activeProviderName();
+    if (p === "openai") return env.OPENAI_MODEL;
+    if (p === "bedrock") return env.BEDROCK_MODEL_ID ?? env.ANTHROPIC_MODEL;
+    return env.ANTHROPIC_MODEL;
   },
   get generation() {
-    if (activeProviderName() === "openai") return env.OPENAI_MODEL;
+    const p = activeProviderName();
+    if (p === "openai") return env.OPENAI_MODEL;
+    if (p === "bedrock") return env.BEDROCK_MODEL_ID ?? env.ANTHROPIC_GENERATION_MODEL ?? env.ANTHROPIC_MODEL;
     return env.ANTHROPIC_GENERATION_MODEL || env.ANTHROPIC_MODEL;
   },
   get evaluation() {
-    if (activeProviderName() === "openai") return env.OPENAI_MODEL;
+    const p = activeProviderName();
+    if (p === "openai") return env.OPENAI_MODEL;
+    if (p === "bedrock") return env.BEDROCK_MODEL_ID ?? env.ANTHROPIC_EVALUATION_MODEL ?? env.ANTHROPIC_MODEL;
     return env.ANTHROPIC_EVALUATION_MODEL || env.ANTHROPIC_MODEL;
   },
   get critic() {
-    if (activeProviderName() === "openai") return env.OPENAI_MODEL;
+    const p = activeProviderName();
+    if (p === "openai") return env.OPENAI_MODEL;
+    if (p === "bedrock") return env.BEDROCK_MODEL_ID ?? env.ANTHROPIC_CRITIC_MODEL ?? env.ANTHROPIC_MODEL;
     return env.ANTHROPIC_CRITIC_MODEL || env.ANTHROPIC_MODEL;
   },
 };

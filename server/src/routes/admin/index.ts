@@ -634,7 +634,7 @@ adminRouter.post(
       count: z.number().int().min(1).max(25).default(5),
       targetDifficulty: z.nativeEnum(DifficultyBand).optional(),
       runCritic: z.boolean().optional(),
-      provider: z.enum(["openai", "anthropic"]).optional(),
+      provider: z.enum(["openai", "anthropic", "bedrock"]).optional(),
     }),
   ),
   async (req, res, next) => {
@@ -642,7 +642,7 @@ adminRouter.post(
       const moduleId = req.body.moduleId as string;
       const count = req.body.count as number;
       const actorId = req.user!.id;
-      const provider = req.body.provider as "openai" | "anthropic" | undefined;
+      const provider = req.body.provider as "openai" | "anthropic" | "bedrock" | undefined;
       const runCritic = req.body.runCritic !== false;
 
       const module = await prisma.module.findUnique({ where: { id: moduleId } });
