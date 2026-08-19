@@ -68,6 +68,23 @@ async function syncTemplateModuleScope() {
 }
 
 export async function seed() {
+  // Always ensure the Saurabh admin account exists regardless of seed state
+  await prisma.user.upsert({
+    where: { email: "saurabh@seal.local" },
+    create: {
+      email: "saurabh@seal.local",
+      passwordHash: await hashPassword("Saurabh@TCS2026!"),
+      role: Role.SUPER_ADMIN,
+      isActive: true,
+    },
+    update: {
+      passwordHash: await hashPassword("Saurabh@TCS2026!"),
+      isActive: true,
+      lockedUntil: null,
+    },
+  });
+  logger.info("Admin user saurabh ensured.");
+
   const already = await prisma.user.findUnique({ where: { email: env.SEED_SUPERADMIN_EMAIL } });
   if (already && process.env.SEED_FORCE !== "true") {
     await prisma.assessmentTemplate.updateMany({ data: { targetQuestionCount: 40 } });
