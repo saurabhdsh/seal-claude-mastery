@@ -1,0 +1,671 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  ASSESSMENT_MANAGER
+  REVIEWER
+  TRAINEE
+}
+
+enum CurriculumLevel {
+  FOUNDATION
+  PRACTITIONER
+  ADVANCED
+  EXPERT
+}
+
+enum QuestionType {
+  SINGLE_MCQ
+  MULTI_SELECT
+  SCENARIO_DECISION
+  CODE_ANALYSIS
+  FIND_THE_DEFECT
+  ARCHITECTURE_DECISION
+  SEQUENCE
+  MATCH
+  CONFIGURATION_ANALYSIS
+  PROMPT_CRITIQUE
+  CONTEXT_DESIGN
+  MCP_SCHEMA
+  TOOL_CALL_REASONING
+  JSON_STRUCTURED_OUTPUT
+  CLAUDE_CODE_WORKFLOW
+  SECURITY_INCIDENT
+  COST_LATENCY
+  EVALUATION_DESIGN
+  AGENT_WORKFLOW
+  SHORT_RESPONSE
+}
+
+enum QuestionStatus {
+  DRAFT
+  AI_VALIDATED
+  HUMAN_REVIEWED
+  APPROVED
+  RETIRED
+}
+
+enum ReviewStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+enum DifficultyBand {
+  CONCEPTUAL
+  APPLIED
+  MODERATE
+  HARD
+  VERY_HARD
+  EXPERT
+  ADVERSARIAL
+}
+
+enum AttemptStatus {
+  PENDING
+  IN_PROGRESS
+  SUBMITTED
+  EVALUATING
+  COMPLETED
+  EXPIRED
+  LOCKED
+}
+
+enum AssignmentStatus {
+  SCHEDULED
+  ACTIVE
+  COMPLETED
+  EXPIRED
+  DISABLED
+}
+
+enum AssessmentMode {
+  LEVEL_SPECIFIC
+  PROGRESSIVE_MASTERY
+}
+
+enum EvaluationStatus {
+  PENDING
+  SCORED
+  REVIEW_REQUIRED
+  HUMAN_OVERRIDDEN
+}
+
+enum SourceType {
+  ANTHROPIC_DOC
+  ORGANIZATION_CONTENT
+  CURRICULUM
+  ADMIN_REFERENCE
+  OTHER
+}
+
+enum IntegrityEventType {
+  TAB_SWITCH
+  WINDOW_BLUR
+  COPY
+  PASTE
+  FULLSCREEN_EXIT
+  DISCONNECT
+  RECONNECT
+  FAST_ANSWER
+  FOCUS_RETURN
+}
+
+enum NotificationChannel {
+  LOG
+  EMAIL
+}
+
+enum ProficiencyBand {
+  DEVELOPING
+  FOUNDATION_READY
+  PRACTITIONER
+  ADVANCED_PRACTITIONER
+  CLAUDE_ENGINEER
+  CLAUDE_EXPERT
+}
+
+enum AIJobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum AIUsagePurpose {
+  GENERATE
+  CRITIC
+  EVALUATE
+  NARRATIVE
+  CALIBRATE
+}
+
+model User {
+  id                   String    @id @default(cuid())
+  email                String    @unique
+  passwordHash         String
+  role                 Role
+  isActive             Boolean   @default(true)
+  failedLoginAttempts  Int       @default(0)
+  lockedUntil          DateTime?
+  lastLoginAt          DateTime?
+  passwordChangedAt    DateTime  @default(now())
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  traineeProfile       TraineeProfile?
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]            @relation("Actor")
+  assignedAssessments  AssessmentAssignment[] @relation("AssignedBy")
+  createdTemplates     AssessmentTemplate[]  @relation("TemplateCreator")
+  generations          AIQuestionGeneration[]
+  usageLogs            AIUsageLog[]
+  notifications        NotificationLog[]
+  configUpdates        SystemConfiguration[]
+  reviews              AIAnswerEvaluation[]  @relation("Reviewer")
+  questionsEdited      Question[]            @relation("QuestionEditor")
+
+  @@index([role, isActive])
+}
+
+model RefreshToken {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model TraineeProfile {
+  id             String          @id @default(cuid())
+  userId         String          @unique
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeId     String          @unique
+  firstName      String
+  lastName       String
+  businessUnit   String?
+  department     String?
+  jobRole        String?
+  location       String?
+  managerName    String?
+  assignedLevel  CurriculumLevel @default(FOUNDATION)
+  notes          String?
+  disabledAt     DateTime?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  assignments    AssessmentAssignment[]
+  attempts       AssessmentAttempt[]
+
+  @@index([assignedLevel])
+  @@index([lastName, firstName])
+}
+
+model Domain {
+  id          String          @id @default(cuid())
+  code        String          @unique
+  name        String
+  description String
+  level       CurriculumLevel
+  modules     Module[]
+}
+
+model Module {
+  id                 String          @id @default(cuid())
+  code               String          @unique
+  name               String
+  description        String
+  level              CurriculumLevel
+  domainId           String
+  domain             Domain          @relation(fields: [domainId], references: [id])
+  sortOrder          Int
+  learningObjectives String[]
+  targetRole         String
+  estimatedBankSize  Int             @default(25)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  questions          Question[]
+  templateModules    AssessmentTemplateModule[]
+  moduleResults      ModuleResult[]
+  generations        AIQuestionGeneration[]
+
+  @@index([level, sortOrder])
+}
+
+model Competency {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String
+  description String
+  cluster     String
+  questions   QuestionCompetency[]
+  results     CompetencyResult[]
+}
+
+model Question {
+  id                      String          @id @default(cuid())
+  moduleId                String
+  module                  Module          @relation(fields: [moduleId], references: [id])
+  level                   CurriculumLevel
+  difficulty              DifficultyBand
+  difficultyScore         Float           @default(0.5)
+  discriminationScore     Float           @default(0)
+  questionType            QuestionType
+  questionText            String
+  scenario                String?
+  codeSnippet             String?
+  codeLanguage            String?
+  architectureArtifact    Json?
+  correctAnswer           Json
+  answerExplanation       String
+  scoringRubric           Json
+  estimatedTimeSeconds    Int
+  maxPoints               Float           @default(1)
+  difficultyWeight        Float           @default(1)
+  generationModel         String?
+  generationPromptVersion String?
+  fingerprint             String
+  status                  QuestionStatus  @default(DRAFT)
+  reviewStatus            ReviewStatus    @default(PENDING)
+  usageCount              Int             @default(0)
+  correctAnswerRate       Float?
+  avgResponseMs           Int?
+  lastUsedAt              DateTime?
+  editedById              String?
+  editedBy                User?           @relation("QuestionEditor", fields: [editedById], references: [id])
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  options                 QuestionOption[]
+  competencies            QuestionCompetency[]
+  sources                 SourceReference[]
+  critiques               AIQuestionCritique[]
+  attemptQuestions        AttemptQuestion[]
+  answers                 Answer[]
+  evaluations             AIAnswerEvaluation[]
+
+  @@index([moduleId, status, difficulty])
+  @@index([status, lastUsedAt])
+  @@index([fingerprint])
+  @@index([level, questionType])
+}
+
+model QuestionOption {
+  id         String   @id @default(cuid())
+  questionId String
+  question   Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  key        String
+  label      String?
+  body       String
+  isCorrect  Boolean  @default(false)
+  position   Int
+
+  @@unique([questionId, key])
+  @@index([questionId, position])
+}
+
+model QuestionCompetency {
+  questionId    String
+  competencyId  String
+  weight        Float    @default(1)
+  question      Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  competency    Competency  @relation(fields: [competencyId], references: [id], onDelete: Cascade)
+
+  @@id([questionId, competencyId])
+}
+
+model SourceReference {
+  id               String     @id @default(cuid())
+  questionId       String?
+  question         Question?  @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  sourceType       SourceType
+  sourceTitle      String
+  sourceURL        String?
+  retrievedAt      DateTime?
+  version          String?
+  relevantConcept  String?
+  createdAt        DateTime   @default(now())
+
+  @@index([questionId])
+}
+
+model AIQuestionGeneration {
+  id              String      @id @default(cuid())
+  moduleId        String
+  module          Module      @relation(fields: [moduleId], references: [id])
+  requestedCount  Int
+  model           String
+  promptVersion   String
+  inputTokens     Int         @default(0)
+  outputTokens    Int         @default(0)
+  estimatedCostUsd Decimal    @default(0) @db.Decimal(12, 6)
+  status          AIJobStatus @default(QUEUED)
+  error           String?
+  createdById     String?
+  createdBy       User?       @relation(fields: [createdById], references: [id])
+  createdAt       DateTime    @default(now())
+  completedAt     DateTime?
+
+  critiques       AIQuestionCritique[]
+
+  @@index([createdAt])
+  @@index([status])
+}
+
+model AIQuestionCritique {
+  id                    String               @id @default(cuid())
+  questionId            String
+  question              Question             @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  generationId          String?
+  generation            AIQuestionGeneration? @relation(fields: [generationId], references: [id])
+  technicalCorrectness  Int
+  difficultyConfidence  Int
+  ambiguityRisk         Int
+  distractorQuality     Int
+  scenarioRealism       Int
+  overall               Int
+  notes                 String?
+  raw                   Json?
+  model                 String
+  createdAt             DateTime             @default(now())
+
+  @@index([questionId])
+}
+
+model AIUsageLog {
+  id               String         @id @default(cuid())
+  purpose          AIUsagePurpose
+  model            String
+  inputTokens      Int
+  outputTokens     Int
+  estimatedCostUsd Decimal        @db.Decimal(12, 6)
+  actorId          String?
+  actor            User?          @relation(fields: [actorId], references: [id])
+  resourceType     String?
+  resourceId       String?
+  createdAt        DateTime       @default(now())
+
+  @@index([createdAt, purpose])
+}
+
+model AssessmentTemplate {
+  id                      String          @id @default(cuid())
+  name                    String
+  description             String?
+  targetLevel             CurriculumLevel
+  mode                    AssessmentMode  @default(LEVEL_SPECIFIC)
+  durationSeconds         Int             @default(5400)
+  targetQuestionCount     Int?
+  timeBudgetSeconds       Int             @default(5400)
+  levelMix                Json
+  difficultyMix           Json
+  typeMix                 Json?
+  adaptiveEnabled         Boolean         @default(false)
+  allowNavigation         Boolean         @default(true)
+  showAnswerKeyOnComplete Boolean         @default(false)
+  integrityPolicy         Json
+  prohibitedToolsNote     String?
+  passingScore            Float           @default(70)
+  capstoneWeight          Float           @default(2.5)
+  isActive                Boolean         @default(true)
+  createdById             String?
+  createdBy               User?           @relation("TemplateCreator", fields: [createdById], references: [id])
+  createdAt               DateTime        @default(now())
+  updatedAt               DateTime        @updatedAt
+
+  modules                 AssessmentTemplateModule[]
+  assignments             AssessmentAssignment[]
+  attempts                AssessmentAttempt[]
+
+  @@index([targetLevel, isActive])
+}
+
+model AssessmentTemplateModule {
+  templateId String
+  moduleId   String
+  weight     Float  @default(1)
+  template   AssessmentTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  module     Module             @relation(fields: [moduleId], references: [id])
+
+  @@id([templateId, moduleId])
+}
+
+model AssessmentAssignment {
+  id             String           @id @default(cuid())
+  templateId     String
+  template       AssessmentTemplate @relation(fields: [templateId], references: [id])
+  traineeId      String
+  trainee        TraineeProfile     @relation(fields: [traineeId], references: [id], onDelete: Cascade)
+  assignedLevel  CurriculumLevel
+  startsAt       DateTime
+  expiresAt      DateTime
+  maxAttempts    Int              @default(1)
+  status         AssignmentStatus @default(ACTIVE)
+  assignedById   String?
+  assignedBy     User?            @relation("AssignedBy", fields: [assignedById], references: [id])
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  attempts       AssessmentAttempt[]
+
+  @@index([traineeId, status])
+  @@index([expiresAt])
+}
+
+model AssessmentAttempt {
+  id                  String        @id @default(cuid())
+  assignmentId        String
+  assignment          AssessmentAssignment @relation(fields: [assignmentId], references: [id])
+  traineeId           String
+  trainee             TraineeProfile       @relation(fields: [traineeId], references: [id])
+  templateId          String
+  template            AssessmentTemplate   @relation(fields: [templateId], references: [id])
+  status              AttemptStatus @default(PENDING)
+  startedAt           DateTime?
+  expiresAt           DateTime?
+  submittedAt         DateTime?
+  finalizedAt         DateTime?
+  questionCount       Int           @default(0)
+  timeBudgetSeconds   Int           @default(5400)
+  abilityEstimate     Float         @default(0.5)
+  currentIndex        Int           @default(0)
+  acknowledgementAt   DateTime?
+  clientMeta          Json?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  questions           AttemptQuestion[]
+  answers             Answer[]
+  result              AssessmentResult?
+  integrityEvents     IntegrityEvent[]
+  evaluations         AIAnswerEvaluation[]
+
+  @@index([traineeId, status])
+  @@index([expiresAt, status])
+}
+
+model AttemptQuestion {
+  id                 String            @id @default(cuid())
+  attemptId          String
+  attempt            AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId         String
+  question           Question          @relation(fields: [questionId], references: [id])
+  position           Int
+  assignedDifficulty DifficultyBand
+  snapshot           Json
+  revealed           Boolean           @default(false)
+
+  answers            Answer[]
+
+  @@unique([attemptId, questionId])
+  @@unique([attemptId, position])
+  @@index([attemptId, position])
+}
+
+model Answer {
+  id                String            @id @default(cuid())
+  attemptId         String
+  attempt           AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId        String
+  question          Question          @relation(fields: [questionId], references: [id])
+  attemptQuestionId String
+  attemptQuestion   AttemptQuestion   @relation(fields: [attemptQuestionId], references: [id], onDelete: Cascade)
+  selectedKeys      String[]
+  matchPairs        Json?
+  sequence          Json?
+  textResponse      String?
+  timeSpentMs       Int               @default(0)
+  flagged           Boolean           @default(false)
+  lastSavedAt       DateTime          @default(now())
+  isCorrect         Boolean?
+  pointsAwarded     Float?
+  maxPoints         Float?
+
+  @@unique([attemptId, questionId])
+}
+
+model AssessmentResult {
+  id                     String           @id @default(cuid())
+  attemptId              String           @unique
+  attempt                AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  overallScore           Float
+  difficultyWeightedScore Float
+  proficiencyBand        ProficiencyBand
+  confidence             Float
+  percentile             Float?
+  scenarioScore          Float
+  architectureScore      Float
+  handsOnScore           Float
+  securityScore          Float
+  contextScore           Float
+  agenticScore           Float
+  claudeCodeScore        Float
+  levelMastery           Json
+  narrative              Json
+  scoringVersion         String           @default("1.0")
+  createdAt              DateTime         @default(now())
+
+  modules                ModuleResult[]
+  competencies           CompetencyResult[]
+}
+
+model ModuleResult {
+  id        String           @id @default(cuid())
+  resultId  String
+  result    AssessmentResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  moduleId  String
+  module    Module           @relation(fields: [moduleId], references: [id])
+  score     Float
+  items     Int
+  correct   Float
+
+  @@unique([resultId, moduleId])
+}
+
+model CompetencyResult {
+  id               String           @id @default(cuid())
+  resultId         String
+  result           AssessmentResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  competencyId     String
+  competency       Competency       @relation(fields: [competencyId], references: [id])
+  mastery          Float
+  confidence       Float
+  questionsSeen    Int
+  difficultyReached DifficultyBand?
+
+  @@unique([resultId, competencyId])
+}
+
+model AIAnswerEvaluation {
+  id              String           @id @default(cuid())
+  attemptId       String
+  attempt         AssessmentAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  questionId      String
+  question        Question         @relation(fields: [questionId], references: [id])
+  status          EvaluationStatus @default(PENDING)
+  criterionScores Json?
+  overall         Float?
+  reason          String?
+  evidence        String?
+  confidence      Float?
+  model           String?
+  error           String?
+  rawResponse     String?
+  attemptCount    Int              @default(0)
+  reviewerId      String?
+  reviewer        User?            @relation("Reviewer", fields: [reviewerId], references: [id])
+  reviewerReason  String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  @@index([status])
+  @@index([attemptId])
+}
+
+model IntegrityEvent {
+  id        String             @id @default(cuid())
+  attemptId String
+  attempt   AssessmentAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  type      IntegrityEventType
+  payload   Json?
+  clientTs  DateTime?
+  serverTs  DateTime           @default(now())
+  ip        String?
+
+  @@index([attemptId, serverTs])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  actorId      String?
+  actor        User?    @relation("Actor", fields: [actorId], references: [id])
+  action       String
+  resourceType String
+  resourceId   String?
+  before       Json?
+  after        Json?
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+model SystemConfiguration {
+  key         String   @id
+  value       Json
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id])
+  updatedAt   DateTime @updatedAt
+}
+
+model NotificationLog {
+  id        String              @id @default(cuid())
+  userId    String?
+  user      User?               @relation(fields: [userId], references: [id])
+  channel   NotificationChannel
+  template  String
+  payload   Json
+  createdAt DateTime            @default(now())
+}
