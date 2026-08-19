@@ -8,7 +8,7 @@ import {
   AIJobStatus,
 } from "@prisma/client";
 import { prisma } from "../../lib/prisma.js";
-import { extractJson, getAIProvider } from "./factory.js";
+import { extractJson, getAIProvider, resolveProviderName } from "./factory.js";
 import { aiModels, env } from "../../config/env.js";
 import { fingerprintQuestion } from "../questions/fingerprint.js";
 import { DEFAULT_DIFFICULTY_WEIGHTS } from "../scoring/engine.js";
@@ -469,11 +469,9 @@ options MUST be a JSON array, never an object.`;
   });
 
   try {
-    const provider = getAIProvider(params.provider);
-    const model =
-      (params.provider ?? (env.AI_PROVIDER || (env.OPENAI_API_KEY ? "openai" : "anthropic"))) === "openai"
-        ? env.OPENAI_MODEL
-        : aiModels.generation;
+    const resolvedProvider = resolveProviderName(params.provider);
+    const provider = getAIProvider(resolvedProvider);
+    const model = resolvedProvider === "openai" ? env.OPENAI_MODEL : aiModels.generation;
     const maxTokens = Math.min(16384, 2500 + params.count * 1400);
 
     async function callModel(temperature: number) {
