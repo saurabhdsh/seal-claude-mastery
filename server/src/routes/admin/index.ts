@@ -28,6 +28,7 @@ import { activeProviderName } from "../../config/env.js";
 import { fingerprintQuestion } from "../../services/questions/fingerprint.js";
 import { dashboardMetrics, questionQuality, competencyWeakness } from "../../services/analytics/queries.js";
 import { computeBankStatus, isPendingReview } from "../../services/questions/bankStatus.js";
+import { buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
@@ -949,6 +950,39 @@ adminRouter.get("/results", requirePermission("admin.results.read"), async (req,
       take: 100,
     });
     res.json(rows);
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get("/results/export.xlsx", requirePermission("admin.results.read"), async (_req, res, next) => {
+  try {
+    const file = await buildResultsListExcel();
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get("/results/:attemptId/export.xlsx", requirePermission("admin.results.read"), async (req, res, next) => {
+  try {
+    const file = await buildResultExcel(req.params.attemptId);
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get("/results/:attemptId/export.pdf", requirePermission("admin.results.read"), async (req, res, next) => {
+  try {
+    const file = await buildResultPdf(req.params.attemptId);
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
   } catch (e) {
     next(e);
   }

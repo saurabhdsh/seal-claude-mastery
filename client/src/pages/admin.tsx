@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api } from "../lib/api";
+import { api, downloadFile } from "../lib/api";
 import { Button, EmptyState, ErrorState, Field, LevelBadge, MetricCard, ModuleBadge, BankStatusBadge, AssignmentStatusBadge, ReadinessBadge, Skeleton, inputClass, DifficultyBadge } from "../components/ui";
 import { AIQualityIndicator } from "../components/media";
 import { CompetencyRadar, ModuleHeatmap } from "../components/charts";
@@ -1054,9 +1054,31 @@ export function AssessmentDetailPage() {
 
 export function ResultsPage() {
   const q = useQuery({ queryKey: ["results"], queryFn: () => api<any[]>("/api/admin/results") });
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   return (
     <div className="space-y-4">
-      <h1 className="font-serif text-4xl">Results</h1>
+      <div className="flex items-end justify-between gap-4">
+        <h1 className="font-serif text-4xl">Results</h1>
+        <Button
+          variant="ghost"
+          disabled={exporting || !q.data?.length}
+          onClick={async () => {
+            setExportError(null);
+            setExporting(true);
+            try {
+              await downloadFile("/api/admin/results/export.xlsx", "SEAL_All_Results.xlsx");
+            } catch (err) {
+              setExportError(err instanceof Error ? err.message : "Export failed");
+            } finally {
+              setExporting(false);
+            }
+          }}
+        >
+          {exporting ? "Exporting…" : "Export all to Excel"}
+        </Button>
+      </div>
+      {exportError && <ErrorState error={new Error(exportError)} />}
       {q.data?.map((r) => {
         const passing = r.attempt?.assignment?.template?.passingScore ?? 70;
         const passed = r.overallScore >= passing;
@@ -1095,11 +1117,29 @@ export function ResultsPage() {
 export function ResultDetailPage() {
   const { attemptId } = useParams();
   const q = useQuery({ queryKey: ["result", attemptId], queryFn: () => api<any>(`/api/admin/results/${attemptId}`) });
+  const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   if (q.isLoading) return <Skeleton className="h-64" />;
   if (q.error) return <ErrorState error={q.error} />;
   const r = q.data;
   const passing = r.attempt?.assignment?.template?.passingScore ?? 70;
   const passed = r.overallScore >= passing;
+
+  const exportResult = async (kind: "pdf" | "xlsx") => {
+    setExportError(null);
+    setExporting(kind);
+    try {
+      await downloadFile(
+        `/api/admin/results/${attemptId}/export.${kind}`,
+        kind === "pdf" ? "SEAL_Result.pdf" : "SEAL_Result.xlsx",
+      );
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : "Export failed");
+    } finally {
+      setExporting(null);
+    }
+  };
+
   return (
     <div className="space-y-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -1111,6 +1151,19 @@ export function ResultDetailPage() {
           <div className="mt-1 text-sm text-[var(--ink-muted)]">
             {r.attempt?.assignment?.template?.name ?? "Assessment"} · {new Date(r.createdAt).toLocaleDateString()}
           </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button variant="ghost" disabled={!!exporting} onClick={() => void exportResult("pdf")}>
+              {exporting === "pdf" ? "Preparing PDF…" : "Export PDF"}
+            </Button>
+            <Button variant="ghost" disabled={!!exporting} onClick={() => void exportResult("xlsx")}>
+              {exporting === "xlsx" ? "Preparing Excel…" : "Export Excel"}
+            </Button>
+          </div>
+          {exportError && (
+            <div className="mt-2">
+              <ErrorState error={new Error(exportError)} />
+            </div>
+          )}
         </div>
         <div
           className={`flex flex-col items-center rounded-2xl px-8 py-4 text-center ${
