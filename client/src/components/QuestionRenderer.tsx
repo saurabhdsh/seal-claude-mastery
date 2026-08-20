@@ -68,11 +68,8 @@ export function QuestionRenderer({
   }
 
   return (
-    <div className="space-y-5">
-      {snapshot.scenario && <ScenarioPanel text={snapshot.scenario} />}
-      {snapshot.codeSnippet && <CodeViewer code={snapshot.codeSnippet} language={snapshot.codeLanguage ?? undefined} />}
-      {snapshot.architectureArtifact != null && <JsonViewer value={snapshot.architectureArtifact} />}
-      <h2 className="font-serif text-[1.65rem] leading-snug tracking-tightish">{snapshot.questionText}</h2>
+    <div className="space-y-6">
+      <QuestionLead snapshot={snapshot} />
       {snapshot.questionType === "SHORT_RESPONSE" ? (
         <textarea
           disabled={disabled}
@@ -127,9 +124,8 @@ function SequenceRenderer({
     onChange(next);
   };
   return (
-    <div className="space-y-5">
-      {snapshot.scenario && <ScenarioPanel text={snapshot.scenario} />}
-      <h2 className="font-serif text-[1.65rem] leading-snug">{snapshot.questionText}</h2>
+    <div className="space-y-6">
+      <QuestionLead snapshot={snapshot} />
       <ol className="space-y-2">
         {sequence.map((key, i) => (
           <li key={key} className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--bg-elev)] px-3 py-2">
@@ -162,9 +158,8 @@ function MatchRenderer({
   const left = (snapshot.options ?? []).filter((_, i) => i % 2 === 0);
   const right = (snapshot.options ?? []).filter((_, i) => i % 2 === 1);
   return (
-    <div className="space-y-5">
-      {snapshot.scenario && <ScenarioPanel text={snapshot.scenario} />}
-      <h2 className="font-serif text-[1.65rem] leading-snug">{snapshot.questionText}</h2>
+    <div className="space-y-6">
+      <QuestionLead snapshot={snapshot} />
       <div className="grid gap-3 md:grid-cols-2">
         {left.map((l, idx) => (
           <div key={l.key} className="rounded-xl border border-[var(--line)] p-3">
@@ -184,6 +179,31 @@ function MatchRenderer({
             </select>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function QuestionLead({ snapshot }: { snapshot: Snapshot }) {
+  return (
+    <div className="space-y-4">
+      {snapshot.scenario ? (
+        <ScenarioPanel text={snapshot.scenario} />
+      ) : (
+        <div className="rounded-2xl border border-dashed border-[var(--line)] bg-[var(--bg-muted)] px-5 py-4 text-[13px] text-[var(--ink-muted)]">
+          No scenario for this item. Read the question carefully before answering.
+        </div>
+      )}
+      {snapshot.codeSnippet && <CodeViewer code={snapshot.codeSnippet} language={snapshot.codeLanguage ?? undefined} />}
+      {snapshot.architectureArtifact != null && <JsonViewer value={snapshot.architectureArtifact} />}
+      <div>
+        <div className="mb-2 flex items-center gap-2">
+          <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#0071e3] px-2 text-[11px] font-semibold text-white">
+            2
+          </span>
+          <span className="text-[13px] font-semibold text-[#1d1d1f]">Then answer this question</span>
+        </div>
+        <h2 className="text-[1.45rem] font-semibold leading-snug tracking-tightish text-[#1d1d1f]">{snapshot.questionText}</h2>
       </div>
     </div>
   );

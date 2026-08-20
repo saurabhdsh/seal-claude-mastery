@@ -18,14 +18,20 @@ export function JsonViewer({ value }: { value: unknown }) {
   return <CodeViewer code={text} language="json" />;
 }
 
-export function ScenarioPanel({ text, collapsedDefault = false }: { text: string; collapsedDefault?: boolean }) {
+export function ScenarioPanel({ text }: { text: string; collapsedDefault?: boolean }) {
   return (
-    <details open={!collapsedDefault} className="rounded-2xl border border-[var(--line)] bg-[var(--bg-muted)]/60 p-4">
-      <summary className="cursor-pointer text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">
-        Scenario
-      </summary>
-      <p className="mt-3 whitespace-pre-wrap text-sm leading-7 text-[var(--ink)]">{text}</p>
-    </details>
+    <section className="rounded-2xl border border-[#d2d2d7] bg-[#f5f5f7] p-5 sm:p-6">
+      <div className="mb-3 flex items-center gap-2">
+        <span className="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[#1d1d1f] px-2 text-[11px] font-semibold text-white">
+          1
+        </span>
+        <div>
+          <div className="text-[13px] font-semibold text-[#1d1d1f]">Read the scenario first</div>
+          <div className="text-[11px] text-[#86868b]">Use this context before you answer the question below.</div>
+        </div>
+      </div>
+      <p className="whitespace-pre-wrap text-[15px] leading-7 text-[#1d1d1f]">{text}</p>
+    </section>
   );
 }
 
