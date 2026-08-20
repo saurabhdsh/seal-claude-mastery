@@ -19,6 +19,7 @@ import { notify } from "../../lib/notify.js";
 import { hashPassword, assertPassword } from "../../services/auth/authService.js";
 import { badRequest, conflict, notFound } from "../../lib/errors.js";
 import { generateQuestionSet, PROMPT_VERSION } from "../../services/ai/questionGenerator.js";
+import { critiqueQuestion } from "../../services/ai/difficultyCalibrator.js";
 import { getGenerationQueue } from "../../jobs/worker.js";
 import { aiModels } from "../../config/env.js";
 import { logger } from "../../lib/logger.js";
@@ -696,6 +697,25 @@ adminRouter.post(
           provider,
           generationId: generation.id,
         });
+        let criticFlagged = 0;
+        if (runCritic) {
+          for (const id of result.questionIds) {
+            try {
+              const scored = await critiqueQuestion(id, result.generationId, actorId);
+              if (scored.reject) criticFlagged += 1;
+            } catch (err) {
+              logger.warn("critic failed", err);
+            }
+          }
+        }
+        if (criticFlagged > 0) {
+          const gen = await prisma.aIQuestionGeneration.findUnique({ where: { id: result.generationId } });
+          const summary = (gen?.resultSummary as Record<string, unknown> | null) ?? {};
+          await prisma.aIQuestionGeneration.update({
+            where: { id: result.generationId },
+            data: { resultSummary: { ...summary, criticFlagged } },
+          });
+        }
         await audit({
           actorId,
           action: "question.generated",

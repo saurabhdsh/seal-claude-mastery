@@ -29,14 +29,24 @@ export async function startWorkers() {
           generationId?: string;
         };
         const result = await generateQuestionSet({ moduleId, count, actorId, provider, generationId });
+        let criticFlagged = 0;
         if (runCritic !== false) {
           for (const id of result.questionIds) {
             try {
-              await critiqueQuestion(id, result.generationId, actorId);
+              const scored = await critiqueQuestion(id, result.generationId, actorId);
+              if (scored.reject) criticFlagged += 1;
             } catch (err) {
               logger.warn("critic failed", err);
             }
           }
+        }
+        if (criticFlagged > 0) {
+          const gen = await prisma.aIQuestionGeneration.findUnique({ where: { id: result.generationId } });
+          const summary = (gen?.resultSummary as Record<string, unknown> | null) ?? {};
+          await prisma.aIQuestionGeneration.update({
+            where: { id: result.generationId },
+            data: { resultSummary: { ...summary, criticFlagged } },
+          });
         }
         return result;
       },

@@ -515,16 +515,29 @@ options MUST be a JSON array, never an object.`;
       }
     }
     const createdIds: string[] = [];
+    const batchFingerprints = new Set<string>();
+    let skippedTrivial = 0;
+    let skippedDuplicate = 0;
+    const parsedCount = parsed.questions.slice(0, params.count).length;
 
     for (const item of parsed.questions.slice(0, params.count)) {
       try {
         assertNonTrivial(item, moduleLevel);
       } catch {
+        skippedTrivial += 1;
         continue;
       }
       const fp = fingerprintQuestion(item.questionText, item.scenario ?? "");
+      if (batchFingerprints.has(fp)) {
+        skippedDuplicate += 1;
+        continue;
+      }
       const duplicate = await prisma.question.findFirst({ where: { fingerprint: fp } });
-      if (duplicate) continue;
+      if (duplicate) {
+        skippedDuplicate += 1;
+        continue;
+      }
+      batchFingerprints.add(fp);
 
       const weight = DEFAULT_DIFFICULTY_WEIGHTS[item.difficulty];
       const question = await prisma.question.create({
@@ -575,10 +588,19 @@ options MUST be a JSON array, never an object.`;
       throw new Error("No questions were saved. The model output was empty, duplicated, or failed validation.");
     }
 
+    const resultSummary = {
+      parsedCount,
+      createdCount: createdIds.length,
+      skippedTrivial,
+      skippedDuplicate,
+    };
+
     await prisma.aIQuestionGeneration.update({
       where: { id: generation.id },
       data: {
         status: AIJobStatus.SUCCEEDED,
+        createdCount: createdIds.length,
+        resultSummary,
         inputTokens: completion.inputTokens,
         outputTokens: completion.outputTokens,
         estimatedCostUsd: new Decimal(completion.estimatedCostUsd),
@@ -586,7 +608,7 @@ options MUST be a JSON array, never an object.`;
       },
     });
 
-    return { generationId: generation.id, questionIds: createdIds };
+    return { generationId: generation.id, questionIds: createdIds, ...resultSummary };
   } catch (err) {
     await prisma.aIQuestionGeneration.update({
       where: { id: generation.id },

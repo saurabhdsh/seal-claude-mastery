@@ -516,6 +516,8 @@ export function ModuleQuestionsPage() {
 
   const pending = (item: any) =>
     item.reviewStatus === "PENDING" && (item.status === "DRAFT" || item.status === "AI_VALIDATED");
+  const criticFlagged = (item: any) =>
+    pending(item) && (item.critiques?.[0]?.raw as { reject?: boolean } | undefined)?.reject === true;
   const sorted = [...(q.data ?? [])].sort((a, b) => {
     const pa = pending(a) ? 0 : 1;
     const pb = pending(b) ? 0 : 1;
@@ -562,6 +564,11 @@ export function ModuleQuestionsPage() {
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {pending(item) && (
                 <span className="rounded-full bg-coral/15 px-2 py-0.5 font-semibold text-coral">New draft</span>
+              )}
+              {criticFlagged(item) && (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-700">
+                  Critic flagged
+                </span>
               )}
               <DifficultyBadge difficulty={item.difficulty} />
               <span>{item.questionType.replaceAll("_", " ")}</span>
@@ -1242,6 +1249,23 @@ function formatGenerationError(error?: string | null) {
   return error.length > 280 ? `${error.slice(0, 280)}…` : error;
 }
 
+function generationResultLine(job: any) {
+  const summary = job?.resultSummary ?? {};
+  const created = job?.createdCount ?? summary.createdCount ?? null;
+  const requested = job?.requestedCount ?? 0;
+  const skipped = (summary.skippedDuplicate ?? 0) + (summary.skippedTrivial ?? 0);
+  const flagged = summary.criticFlagged ?? 0;
+
+  if (created == null) {
+    return `${requested} requested — open the question bank to review drafts.`;
+  }
+  const parts = [`${created} of ${requested} saved`];
+  if (skipped > 0) parts.push(`${skipped} skipped (duplicate or validation)`);
+  if (flagged > 0) parts.push(`${flagged} flagged by critic — still reviewable`);
+  parts.push("ready for your approval");
+  return parts.join(", ") + ".";
+}
+
 export function AIControlPage() {
   const qc = useQueryClient();
   const [moduleId, setModuleId] = useState("");
@@ -1381,8 +1405,8 @@ export function AIControlPage() {
       )}
       {sessionJob?.status === "SUCCEEDED" && !busy && (
         <div className="rounded-2xl border border-coral/40 bg-coral/5 px-4 py-3 text-sm">
-          <strong>{sessionJob.module?.code ?? "Module"} is now New</strong> — {sessionJob.requestedCount} draft
-          {(sessionJob.requestedCount ?? 0) === 1 ? "" : "s"} ready for review. Open the{" "}
+          <strong>{sessionJob.module?.code ?? "Module"} is now New</strong> — {generationResultLine(sessionJob)}{" "}
+          Open the{" "}
           <Link className="text-coral underline" to={`/admin/question-bank/${sessionJob.moduleId}`}>
             question bank
           </Link>{" "}
@@ -1417,7 +1441,11 @@ export function AIControlPage() {
               >
                 <div>
                   <span className="font-medium">{g.module?.code ?? g.moduleId}</span>
-                  <span className="text-[var(--ink-muted)]"> · {g.requestedCount} requested · </span>
+                  <span className="text-[var(--ink-muted)]">
+                    {" "}
+                    · {g.requestedCount} requested
+                    {g.createdCount != null ? ` · ${g.createdCount} saved` : ""} ·{" "}
+                  </span>
                   <span className={statusClass}>{g.status}</span>
                 </div>
                 <div className="flex items-center gap-3 text-xs text-[var(--ink-muted)]">

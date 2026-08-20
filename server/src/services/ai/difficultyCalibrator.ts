@@ -78,11 +78,12 @@ Return JSON only.`;
     },
   });
 
+  // Keep human review in the loop — critic flags quality but does not auto-reject from the bank.
   await prisma.question.update({
     where: { id: q.id },
     data: {
       status: scored.reject ? QuestionStatus.DRAFT : QuestionStatus.AI_VALIDATED,
-      reviewStatus: scored.reject ? "REJECTED" : "PENDING",
+      reviewStatus: "PENDING",
     },
   });
 

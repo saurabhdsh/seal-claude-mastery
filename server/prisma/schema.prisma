@@ -359,6 +359,8 @@ model AIQuestionGeneration {
   outputTokens    Int         @default(0)
   estimatedCostUsd Decimal    @default(0) @db.Decimal(12, 6)
   status          AIJobStatus @default(QUEUED)
+  createdCount    Int?
+  resultSummary   Json?
   error           String?
   createdById     String?
   createdBy       User?       @relation(fields: [createdById], references: [id])
