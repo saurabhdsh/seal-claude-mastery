@@ -591,6 +591,52 @@ adminRouter.post("/questions/:id/retire", requirePermission("admin.questions.wri
   }
 });
 
+adminRouter.post(
+  "/modules/:moduleId/clear-pending-drafts",
+  requirePermission("admin.questions.write"),
+  async (req, res, next) => {
+    try {
+      const moduleId = req.params.moduleId;
+      const mod = await prisma.module.findUnique({ where: { id: moduleId }, select: { id: true, code: true } });
+      if (!mod) throw notFound("Module not found");
+
+      const pendingWhere: Prisma.QuestionWhereInput = {
+        moduleId,
+        reviewStatus: ReviewStatus.PENDING,
+        status: { in: [QuestionStatus.DRAFT, QuestionStatus.AI_VALIDATED] },
+        attemptQuestions: { none: {} },
+      };
+
+      const candidates = await prisma.question.findMany({
+        where: pendingWhere,
+        select: { id: true },
+      });
+      const ids = candidates.map((q) => q.id);
+      if (ids.length === 0) {
+        res.json({ moduleId, deleted: 0, message: "No pending drafts to clear." });
+        return;
+      }
+
+      const deleted = await prisma.question.deleteMany({ where: { id: { in: ids } } });
+      await audit({
+        actorId: req.user!.id,
+        action: "question.pending_drafts_cleared",
+        resourceType: "Module",
+        resourceId: moduleId,
+        after: { deleted: deleted.count, code: mod.code },
+        req,
+      });
+      res.json({
+        moduleId,
+        deleted: deleted.count,
+        message: `Cleared ${deleted.count} pending draft${deleted.count === 1 ? "" : "s"}.`,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
+
 adminRouter.post("/questions/:id/clone", requirePermission("admin.questions.write"), async (req, res, next) => {
   try {
     const src = await prisma.question.findUnique({
@@ -637,6 +683,7 @@ adminRouter.post(
       targetDifficulty: z.nativeEnum(DifficultyBand).optional(),
       runCritic: z.boolean().optional(),
       provider: z.enum(["openai", "anthropic", "bedrock"]).optional(),
+      replacePendingDrafts: z.boolean().optional(),
     }),
   ),
   async (req, res, next) => {
@@ -646,9 +693,35 @@ adminRouter.post(
       const actorId = req.user!.id;
       const provider = req.body.provider as "openai" | "anthropic" | "bedrock" | undefined;
       const runCritic = req.body.runCritic !== false;
+      const replacePendingDrafts = req.body.replacePendingDrafts === true;
 
       const module = await prisma.module.findUnique({ where: { id: moduleId } });
       if (!module) throw notFound("Module not found");
+
+      let clearedPending = 0;
+      if (replacePendingDrafts) {
+        const pending = await prisma.question.findMany({
+          where: {
+            moduleId,
+            reviewStatus: ReviewStatus.PENDING,
+            status: { in: [QuestionStatus.DRAFT, QuestionStatus.AI_VALIDATED] },
+            attemptQuestions: { none: {} },
+          },
+          select: { id: true },
+        });
+        if (pending.length) {
+          const deleted = await prisma.question.deleteMany({ where: { id: { in: pending.map((q) => q.id) } } });
+          clearedPending = deleted.count;
+          await audit({
+            actorId,
+            action: "question.pending_drafts_cleared",
+            resourceType: "Module",
+            resourceId: moduleId,
+            after: { deleted: clearedPending, beforeGenerate: true },
+            req,
+          });
+        }
+      }
 
       const generation = await prisma.aIQuestionGeneration.create({
         data: {
@@ -686,6 +759,7 @@ adminRouter.post(
           jobId: job.id,
           moduleId,
           requestedCount: count,
+          clearedPending,
         });
       } catch (queueErr) {
         logger.warn("generation queue unavailable, running inline", queueErr);
@@ -721,7 +795,7 @@ adminRouter.post(
           action: "question.generated",
           resourceType: "AIQuestionGeneration",
           resourceId: result.generationId,
-          after: { ...result, queued: false },
+          after: { ...result, queued: false, clearedPending },
           req,
         });
         res.json({
@@ -730,6 +804,7 @@ adminRouter.post(
           created: result.questionIds.length,
           requestedCount: count,
           moduleId,
+          clearedPending,
         });
       }
     } catch (e) {

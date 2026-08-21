@@ -514,6 +514,19 @@ export function ModuleQuestionsPage() {
     ]);
   };
 
+  const clearDrafts = useMutation({
+    mutationFn: () =>
+      api<{ deleted: number; message: string }>(`/api/admin/modules/${moduleId}/clear-pending-drafts`, {
+        method: "POST",
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["questions", moduleId] }),
+        qc.invalidateQueries({ queryKey: ["modules"] }),
+      ]);
+    },
+  });
+
   const pending = (item: any) =>
     item.reviewStatus === "PENDING" && (item.status === "DRAFT" || item.status === "AI_VALIDATED");
   const criticFlagged = (item: any) =>
@@ -535,12 +548,38 @@ export function ModuleQuestionsPage() {
           {mod && (
             <BankStatusBadge status={mod.bankStatus} pendingCount={mod.pendingReviewCount} liveCount={mod.liveBankCount} />
           )}
+          {pendingCount > 0 && (
+            <Button
+              variant="danger"
+              disabled={clearDrafts.isPending}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Delete ${pendingCount} pending draft${pendingCount === 1 ? "" : "s"} for ${mod?.code ?? "this module"}?\n\nApproved live-bank questions are kept. This frees the bank for a fresh AI generation.`,
+                  )
+                ) {
+                  clearDrafts.mutate();
+                }
+              }}
+            >
+              {clearDrafts.isPending ? "Clearing…" : `Clear ${pendingCount} pending draft${pendingCount === 1 ? "" : "s"}`}
+            </Button>
+          )}
         </div>
+        {clearDrafts.isSuccess && (
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 px-4 py-3 text-sm">
+            {clearDrafts.data.message} You can generate a fresh set in{" "}
+            <Link className="text-coral underline" to="/admin/ai">
+              AI Control
+            </Link>
+            .
+          </div>
+        )}
+        {clearDrafts.error && <ErrorState error={clearDrafts.error} />}
         {mod?.bankStatus === "new" && (
           <div className="rounded-2xl border border-coral/40 bg-coral/5 px-4 py-3 text-sm">
             <strong>{pendingCount || mod.pendingReviewCount} new draft{(pendingCount || mod.pendingReviewCount) === 1 ? "" : "s"}</strong>{" "}
-            waiting for review. Approve items you want in the live bank — the module will show <strong>Updated</strong> once
-            all drafts are handled.
+            waiting for review. Approve items you want in the live bank — or clear them to regenerate without duplicates.
           </div>
         )}
         {mod?.bankStatus === "updated" && (
@@ -1277,10 +1316,12 @@ export function AIControlPage() {
   const [moduleId, setModuleId] = useState("");
   const [count, setCount] = useState(5);
   const [provider, setProvider] = useState<"openai" | "anthropic" | "bedrock">("bedrock");
+  const [replacePendingDrafts, setReplacePendingDrafts] = useState(false);
   const [sessionJobId, setSessionJobId] = useState<string | null>(null);
   const [pending, setPending] = useState<{ moduleCode: string; count: number } | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
+  const [clearedPending, setClearedPending] = useState<number | null>(null);
 
   const q = useQuery({
     queryKey: ["ai"],
@@ -1292,6 +1333,8 @@ export function AIControlPage() {
     },
   });
   const modules = useQuery({ queryKey: ["modules"], queryFn: () => api<any[]>("/api/admin/modules") });
+  const selectedModule = modules.data?.find((m) => m.id === moduleId);
+  const selectedPending = selectedModule?.pendingReviewCount ?? 0;
 
   const gens: any[] = q.data?.generations ?? [];
   const sessionJob = useMemo(
@@ -1302,20 +1345,27 @@ export function AIControlPage() {
 
   const gen = useMutation({
     mutationFn: () =>
-      api<{ generationId: string; queued?: boolean; created?: number }>("/api/admin/questions/generate", {
-        method: "POST",
-        body: JSON.stringify({ moduleId, count, runCritic: true, provider }),
-      }),
+      api<{ generationId: string; queued?: boolean; created?: number; clearedPending?: number }>(
+        "/api/admin/questions/generate",
+        {
+          method: "POST",
+          body: JSON.stringify({ moduleId, count, runCritic: true, provider, replacePendingDrafts }),
+        },
+      ),
     onMutate: () => {
       const mod = modules.data?.find((m) => m.id === moduleId);
       setPending({ moduleCode: mod?.code ?? "module", count });
       setSessionJobId(null);
       setStartedAt(Date.now());
       setTick(0);
+      setClearedPending(null);
     },
     onSuccess: (data) => {
       setSessionJobId(data.generationId);
+      if (typeof data.clearedPending === "number") setClearedPending(data.clearedPending);
       void qc.invalidateQueries({ queryKey: ["ai"] });
+      void qc.invalidateQueries({ queryKey: ["modules"] });
+      if (moduleId) void qc.invalidateQueries({ queryKey: ["questions", moduleId] });
     },
     onError: () => {
       setPending(null);
@@ -1400,18 +1450,39 @@ export function AIControlPage() {
         <Field label="Count">
           <input className={inputClass} type="number" min={1} max={25} value={count} onChange={(e) => setCount(Number(e.target.value))} />
         </Field>
+        <label className="flex items-center gap-2 pb-2.5 text-sm">
+          <input
+            type="checkbox"
+            checked={replacePendingDrafts}
+            onChange={(e) => setReplacePendingDrafts(e.target.checked)}
+            disabled={busy || selectedPending === 0}
+          />
+          <span>
+            Replace pending drafts
+            {selectedPending > 0 ? ` (${selectedPending})` : ""}
+          </span>
+        </label>
         <Button disabled={busy || !moduleId}>{busy ? "Generating…" : "Generate question set"}</Button>
       </form>
+      {replacePendingDrafts && selectedPending > 0 && (
+        <p className="text-xs text-amber-700">
+          Pending drafts for {selectedModule?.code} will be deleted before generation. Approved live-bank questions are kept.
+        </p>
+      )}
       {gen.error && <ErrorState error={gen.error} />}
       {busy && (
         <div className="rounded-2xl border border-coral/40 bg-coral/5 px-4 py-3 text-sm">
-          Generating {bannerCount} items for {bannerModule}… {elapsed}s elapsed. Drafts land in the question bank when
-          this finishes (typically 30–90 seconds).
+          Generating {bannerCount} items for {bannerModule}…
+          {clearedPending != null && clearedPending > 0 ? ` Cleared ${clearedPending} old draft${clearedPending === 1 ? "" : "s"}.` : ""}{" "}
+          {elapsed}s elapsed. Drafts land in the question bank when this finishes (typically 30–90 seconds).
         </div>
       )}
       {sessionJob?.status === "SUCCEEDED" && !busy && (
         <div className="rounded-2xl border border-coral/40 bg-coral/5 px-4 py-3 text-sm">
-          <strong>{sessionJob.module?.code ?? "Module"} is now New</strong> — {generationResultLine(sessionJob)}{" "}
+          <strong>{sessionJob.module?.code ?? "Module"} is now New</strong> — {generationResultLine(sessionJob)}
+          {clearedPending != null && clearedPending > 0
+            ? ` Replaced ${clearedPending} previous draft${clearedPending === 1 ? "" : "s"}.`
+            : ""}{" "}
           Open the{" "}
           <Link className="text-coral underline" to={`/admin/question-bank/${sessionJob.moduleId}`}>
             question bank

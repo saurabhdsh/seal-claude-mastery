@@ -426,7 +426,16 @@ export async function generateQuestionSet(params: {
       });
 
   const existingRows = await prisma.question.findMany({
-    where: { moduleId },
+    where: {
+      moduleId,
+      OR: [
+        { status: QuestionStatus.APPROVED },
+        {
+          reviewStatus: ReviewStatus.PENDING,
+          status: { in: [QuestionStatus.DRAFT, QuestionStatus.AI_VALIDATED] },
+        },
+      ],
+    },
     select: { questionText: true, scenario: true, fingerprint: true },
     orderBy: { createdAt: "desc" },
     take: 40,
@@ -541,7 +550,17 @@ options MUST be a JSON array, never an object.`;
           continue;
         }
         const duplicate = await prisma.question.findFirst({
-          where: { moduleId, fingerprint: fp },
+          where: {
+            moduleId,
+            fingerprint: fp,
+            OR: [
+              { status: QuestionStatus.APPROVED },
+              {
+                reviewStatus: ReviewStatus.PENDING,
+                status: { in: [QuestionStatus.DRAFT, QuestionStatus.AI_VALIDATED] },
+              },
+            ],
+          },
           select: { id: true },
         });
         if (duplicate) {
