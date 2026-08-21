@@ -33,6 +33,12 @@ export class BedrockProvider implements AIProvider {
       .map((b) => (b as { type: "text"; text: string }).text)
       .join("");
 
+    if (response.stop_reason === "max_tokens") {
+      throw new Error(
+        "Bedrock response was truncated (max_tokens). Try a smaller count (3) or raise AI_MAX_TOKENS.",
+      );
+    }
+
     const inputTokens = response.usage.input_tokens;
     const outputTokens = response.usage.output_tokens;
     const estimatedCostUsd = estimateCost(inputTokens, outputTokens);

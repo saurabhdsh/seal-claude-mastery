@@ -16,7 +16,7 @@ import { Decimal } from "@prisma/client/runtime/library";
 import { HttpError } from "../../lib/errors.js";
 import { logger } from "../../lib/logger.js";
 
-export const PROMPT_VERSION = "seal-qg-v4";
+export const PROMPT_VERSION = "seal-qg-v5";
 
 const QUESTION_TYPES = Object.values(QuestionType) as string[];
 const DIFFICULTIES = Object.values(DifficultyBand) as string[];
@@ -403,6 +403,11 @@ export async function generateQuestionSet(params: {
   const moduleId = mod.id;
   const moduleCode = mod.code;
   const moduleLevel = mod.level;
+  const moduleName = mod.name;
+  const moduleDescription = mod.description;
+  const moduleObjectives = mod.learningObjectives;
+  const moduleTargetRole = mod.targetRole;
+  const domainName = mod.domain.name;
 
   const generation = params.generationId
     ? await prisma.aIQuestionGeneration.update({
@@ -420,11 +425,21 @@ export async function generateQuestionSet(params: {
         },
       });
 
+  const existingRows = await prisma.question.findMany({
+    where: { moduleId },
+    select: { questionText: true, scenario: true, fingerprint: true },
+    orderBy: { createdAt: "desc" },
+    take: 40,
+  });
+  const existingFingerprints = new Set(existingRows.map((q) => q.fingerprint));
+  const avoidStems = existingRows.map((q) => q.questionText.slice(0, 140));
+
   const system = `You are the Question Generator for SEAL, an enterprise Claude capability assessment platform.
 You produce rigorous, scenario-driven assessment items. You never write trivia.
 Prohibited stems except where Foundation level truly requires them: "What is...", "Define...", "Which statement describes...".
 Every distractor must be technically credible. Avoid obvious answers.
 Candidate should need real Claude / Claude Code / MCP / agentic / context-engineering judgment.
+Each questionText and scenario MUST be distinct from every other item in this batch and from avoidStems.
 Return a single JSON object. No markdown. Use this exact shape:
 
 {"questions":[{
@@ -446,38 +461,42 @@ questionType must be one of: SINGLE_MCQ, MULTI_SELECT, SCENARIO_DECISION, CODE_A
 difficulty must be one of: CONCEPTUAL, APPLIED, MODERATE, HARD, VERY_HARD, EXPERT, ADVERSARIAL.
 options MUST be a JSON array, never an object.`;
 
-  const user = JSON.stringify({
-    instruction: `Generate ${params.count} unique questions for this module.`,
-    module: {
-      code: mod.code,
-      name: mod.name,
-      level: mod.level,
-      domain: mod.domain.name,
-      description: mod.description,
-      learningObjectives: mod.learningObjectives,
-      targetRole: mod.targetRole,
-    },
-    targetDifficulty: params.targetDifficulty ?? null,
-    typeDistribution: params.typeDistribution ?? null,
-    rules: [
-      "Favor realistic enterprise incidents over definitions.",
-      "Include code, JSON, YAML, or architecture artifacts where the type warrants it.",
-      "Map skillsMeasured to concrete competencies (not vague labels).",
-      "estimatedTimeSeconds must reflect actual cognitive load.",
-      "correctAnswer.keys must match option keys for choice items.",
-    ],
-  });
+  function buildUser(instruction: string) {
+    return JSON.stringify({
+      instruction,
+      module: {
+        code: moduleCode,
+        name: moduleName,
+        level: moduleLevel,
+        domain: domainName,
+        description: moduleDescription,
+        learningObjectives: moduleObjectives,
+        targetRole: moduleTargetRole,
+      },
+      targetDifficulty: params.targetDifficulty ?? null,
+      typeDistribution: params.typeDistribution ?? null,
+      avoidStems,
+      rules: [
+        "Favor realistic enterprise incidents over definitions.",
+        "Include code, JSON, YAML, or architecture artifacts where the type warrants it.",
+        "Map skillsMeasured to concrete competencies (not vague labels).",
+        "estimatedTimeSeconds must reflect actual cognitive load.",
+        "correctAnswer.keys must match option keys for choice items.",
+        "Do NOT rewrite or lightly paraphrase any avoidStems item — invent new scenarios.",
+      ],
+    });
+  }
 
   try {
     const resolvedProvider = resolveProviderName(params.provider);
     const provider = getAIProvider(resolvedProvider);
     const model = resolvedProvider === "openai" ? env.OPENAI_MODEL : aiModels.generation;
-    const maxTokens = Math.min(16384, 2500 + params.count * 1400);
+    const maxTokens = Math.min(16384, Math.max(env.AI_MAX_TOKENS, 3200 + params.count * 1800));
 
-    async function callModel(temperature: number) {
+    async function callModel(temperature: number, instruction: string) {
       return provider.complete({
         system,
-        user,
+        user: buildUser(instruction),
         model,
         temperature,
         maxTokens,
@@ -492,7 +511,110 @@ options MUST be a JSON array, never an object.`;
       return generatedSetSchema.parse(extractJson(text));
     }
 
-    let completion = await callModel(0.55);
+    async function saveQuestions(
+      items: GeneratedQuestion[],
+      generationModel: string,
+    ): Promise<{
+      createdIds: string[];
+      skippedTrivial: number;
+      skippedDuplicate: number;
+      skippedCreate: number;
+      parsedCount: number;
+    }> {
+      const createdIds: string[] = [];
+      const batchFingerprints = new Set<string>();
+      let skippedTrivial = 0;
+      let skippedDuplicate = 0;
+      let skippedCreate = 0;
+      const slice = items.slice(0, params.count);
+
+      for (const item of slice) {
+        try {
+          assertNonTrivial(item, moduleLevel);
+        } catch {
+          skippedTrivial += 1;
+          continue;
+        }
+        const fp = fingerprintQuestion(item.questionText, item.scenario ?? "");
+        if (batchFingerprints.has(fp) || existingFingerprints.has(fp)) {
+          skippedDuplicate += 1;
+          continue;
+        }
+        const duplicate = await prisma.question.findFirst({
+          where: { moduleId, fingerprint: fp },
+          select: { id: true },
+        });
+        if (duplicate) {
+          skippedDuplicate += 1;
+          continue;
+        }
+        batchFingerprints.add(fp);
+
+        try {
+          const weight = DEFAULT_DIFFICULTY_WEIGHTS[item.difficulty];
+          const question = await prisma.question.create({
+            data: {
+              moduleId,
+              level: moduleLevel,
+              difficulty: item.difficulty,
+              questionType: item.questionType,
+              questionText: item.questionText,
+              scenario: item.scenario ?? null,
+              codeSnippet: item.codeSnippet ?? null,
+              codeLanguage: item.codeLanguage ?? null,
+              architectureArtifact: item.architectureArtifact ? (item.architectureArtifact as object) : undefined,
+              correctAnswer: item.correctAnswer,
+              answerExplanation: item.answerExplanation,
+              scoringRubric: item.scoringRubric,
+              estimatedTimeSeconds: item.estimatedTimeSeconds,
+              maxPoints: item.questionType === "SHORT_RESPONSE" ? 4 : 1,
+              difficultyWeight: weight,
+              generationModel,
+              generationPromptVersion: PROMPT_VERSION,
+              fingerprint: fp,
+              status: QuestionStatus.DRAFT,
+              reviewStatus: ReviewStatus.PENDING,
+              options: {
+                create: (item.options ?? []).map((o, i) => ({
+                  key: o.key,
+                  body: o.body,
+                  isCorrect: o.isCorrect,
+                  position: i,
+                })),
+              },
+              sources: {
+                create: item.sourceReferences.map((s) => ({
+                  sourceType: s.sourceType,
+                  sourceTitle: s.sourceTitle,
+                  sourceURL: s.sourceURL,
+                  relevantConcept: s.relevantConcept,
+                  retrievedAt: new Date(),
+                })),
+              },
+            },
+          });
+          createdIds.push(question.id);
+          existingFingerprints.add(fp);
+        } catch (createErr) {
+          skippedCreate += 1;
+          logger.warn("question create failed", {
+            module: moduleCode,
+            error: createErr instanceof Error ? createErr.message : String(createErr),
+          });
+        }
+      }
+
+      return {
+        createdIds,
+        skippedTrivial,
+        skippedDuplicate,
+        skippedCreate,
+        parsedCount: slice.length,
+      };
+    }
+
+    const baseInstruction = `Generate ${params.count} unique questions for this module. Each must cover a different scenario or failure mode.`;
+    let completion = await callModel(0.55, baseInstruction);
     let parsed;
     try {
       parsed = parseCompletion(completion.text);
@@ -502,7 +624,7 @@ options MUST be a JSON array, never an object.`;
         preview: completion.text.slice(0, 240),
         error: firstErr instanceof Error ? firstErr.message : String(firstErr),
       });
-      completion = await callModel(0.35);
+      completion = await callModel(0.35, baseInstruction);
       try {
         parsed = parseCompletion(completion.text);
       } catch (retryErr) {
@@ -514,92 +636,45 @@ options MUST be a JSON array, never an object.`;
         throw retryErr;
       }
     }
-    const createdIds: string[] = [];
-    const batchFingerprints = new Set<string>();
-    let skippedTrivial = 0;
-    let skippedDuplicate = 0;
-    const parsedCount = parsed.questions.slice(0, params.count).length;
 
-    for (const item of parsed.questions.slice(0, params.count)) {
-      try {
-        assertNonTrivial(item, moduleLevel);
-      } catch {
-        skippedTrivial += 1;
-        continue;
-      }
-      const fp = fingerprintQuestion(item.questionText, item.scenario ?? "");
-      if (batchFingerprints.has(fp)) {
-        skippedDuplicate += 1;
-        continue;
-      }
-      const duplicate = await prisma.question.findFirst({ where: { fingerprint: fp } });
-      if (duplicate) {
-        skippedDuplicate += 1;
-        continue;
-      }
-      batchFingerprints.add(fp);
+    let saved = await saveQuestions(parsed.questions, completion.model);
 
-      const weight = DEFAULT_DIFFICULTY_WEIGHTS[item.difficulty];
-      const question = await prisma.question.create({
-        data: {
-          moduleId,
-          level: moduleLevel,
-          difficulty: item.difficulty,
-          questionType: item.questionType,
-          questionText: item.questionText,
-          scenario: item.scenario ?? null,
-          codeSnippet: item.codeSnippet ?? null,
-          codeLanguage: item.codeLanguage ?? null,
-          architectureArtifact: item.architectureArtifact ? (item.architectureArtifact as object) : undefined,
-          correctAnswer: item.correctAnswer,
-          answerExplanation: item.answerExplanation,
-          scoringRubric: item.scoringRubric,
-          estimatedTimeSeconds: item.estimatedTimeSeconds,
-          maxPoints: item.questionType === "SHORT_RESPONSE" ? 4 : 1,
-          difficultyWeight: weight,
-          generationModel: completion.model,
-          generationPromptVersion: PROMPT_VERSION,
-          fingerprint: fp,
-          status: QuestionStatus.DRAFT,
-          reviewStatus: ReviewStatus.PENDING,
-          options: {
-            create: (item.options ?? []).map((o, i) => ({
-              key: o.key,
-              body: o.body,
-              isCorrect: o.isCorrect,
-              position: i,
-            })),
-          },
-          sources: {
-            create: item.sourceReferences.map((s) => ({
-              sourceType: s.sourceType,
-              sourceTitle: s.sourceTitle,
-              sourceURL: s.sourceURL,
-              relevantConcept: s.relevantConcept,
-              retrievedAt: new Date(),
-            })),
-          },
-        },
+    if (saved.createdIds.length === 0) {
+      logger.warn("question generation saved zero items, retrying for diversity", {
+        module: moduleCode,
+        ...saved,
       });
-      createdIds.push(question.id);
+      const diversityInstruction = `PREVIOUS OUTPUT WAS ALL DUPLICATES. Generate ${params.count} brand-new questions with completely different scenarios, industries, and technical artifacts than avoidStems. Vary questionType across the set.`;
+      completion = await callModel(0.85, diversityInstruction);
+      parsed = parseCompletion(completion.text);
+      saved = await saveQuestions(parsed.questions, completion.model);
     }
 
-    if (createdIds.length === 0) {
-      throw new Error("No questions were saved. The model output was empty, duplicated, or failed validation.");
+    if (saved.createdIds.length === 0) {
+      const parts = [
+        `parsed ${saved.parsedCount}`,
+        saved.skippedDuplicate ? `${saved.skippedDuplicate} duplicate` : null,
+        saved.skippedTrivial ? `${saved.skippedTrivial} trivial stem` : null,
+        saved.skippedCreate ? `${saved.skippedCreate} failed to save` : null,
+      ].filter(Boolean);
+      throw new Error(
+        `No questions were saved (${parts.join(", ")}). The bank already has similar items — try again or clear old drafts for this module.`,
+      );
     }
 
     const resultSummary = {
-      parsedCount,
-      createdCount: createdIds.length,
-      skippedTrivial,
-      skippedDuplicate,
+      parsedCount: saved.parsedCount,
+      createdCount: saved.createdIds.length,
+      skippedTrivial: saved.skippedTrivial,
+      skippedDuplicate: saved.skippedDuplicate,
+      skippedCreate: saved.skippedCreate,
     };
 
     await prisma.aIQuestionGeneration.update({
       where: { id: generation.id },
       data: {
         status: AIJobStatus.SUCCEEDED,
-        createdCount: createdIds.length,
+        createdCount: saved.createdIds.length,
         resultSummary,
         inputTokens: completion.inputTokens,
         outputTokens: completion.outputTokens,
@@ -608,7 +683,7 @@ options MUST be a JSON array, never an object.`;
       },
     });
 
-    return { generationId: generation.id, questionIds: createdIds, ...resultSummary };
+    return { generationId: generation.id, questionIds: saved.createdIds, ...resultSummary };
   } catch (err) {
     await prisma.aIQuestionGeneration.update({
       where: { id: generation.id },

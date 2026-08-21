@@ -1240,11 +1240,17 @@ export function AnalyticsPage() {
 
 function formatGenerationError(error?: string | null) {
   if (!error) return null;
+  if (/no questions were saved/i.test(error)) {
+    return error.length > 320 ? `${error.slice(0, 320)}…` : error;
+  }
   if (error.trimStart().startsWith("[") && error.includes("invalid_type")) {
     return "The model returned questions in an unexpected format. Try again with a smaller count.";
   }
   if (/model did not return json|not valid json/i.test(error)) {
     return "The model response was not valid JSON. Try count 3 or retry in a minute.";
+  }
+  if (/truncated \(max_tokens\)/i.test(error)) {
+    return "The model ran out of output space. Try count 3.";
   }
   return error.length > 280 ? `${error.slice(0, 280)}…` : error;
 }
