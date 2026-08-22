@@ -529,14 +529,16 @@ export function ModuleQuestionsPage() {
 
   const pending = (item: any) =>
     item.reviewStatus === "PENDING" && (item.status === "DRAFT" || item.status === "AI_VALIDATED");
+  const clearable = (item: any) => item.status === "DRAFT" || item.status === "AI_VALIDATED";
   const criticFlagged = (item: any) =>
     pending(item) && (item.critiques?.[0]?.raw as { reject?: boolean } | undefined)?.reject === true;
   const sorted = [...(q.data ?? [])].sort((a, b) => {
-    const pa = pending(a) ? 0 : 1;
-    const pb = pending(b) ? 0 : 1;
+    const pa = pending(a) ? 0 : clearable(a) ? 1 : 2;
+    const pb = pending(b) ? 0 : clearable(b) ? 1 : 2;
     return pa - pb || new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });
   const pendingCount = sorted.filter(pending).length;
+  const clearableCount = sorted.filter(clearable).length;
 
   return (
     <div className="space-y-6">
@@ -548,21 +550,23 @@ export function ModuleQuestionsPage() {
           {mod && (
             <BankStatusBadge status={mod.bankStatus} pendingCount={mod.pendingReviewCount} liveCount={mod.liveBankCount} />
           )}
-          {pendingCount > 0 && (
+          {clearableCount > 0 && (
             <Button
               variant="danger"
               disabled={clearDrafts.isPending}
               onClick={() => {
                 if (
                   window.confirm(
-                    `Delete ${pendingCount} pending draft${pendingCount === 1 ? "" : "s"} for ${mod?.code ?? "this module"}?\n\nApproved live-bank questions are kept. This frees the bank for a fresh AI generation.`,
+                    `Delete ${clearableCount} unused draft${clearableCount === 1 ? "" : "s"} for ${mod?.code ?? "this module"}?\n\nIncludes pending and previously rejected drafts. Approved live-bank questions are kept.`,
                   )
                 ) {
                   clearDrafts.mutate();
                 }
               }}
             >
-              {clearDrafts.isPending ? "Clearing…" : `Clear ${pendingCount} pending draft${pendingCount === 1 ? "" : "s"}`}
+              {clearDrafts.isPending
+                ? "Clearing…"
+                : `Clear ${clearableCount} unused draft${clearableCount === 1 ? "" : "s"}`}
             </Button>
           )}
         </div>
@@ -579,7 +583,13 @@ export function ModuleQuestionsPage() {
         {mod?.bankStatus === "new" && (
           <div className="rounded-2xl border border-coral/40 bg-coral/5 px-4 py-3 text-sm">
             <strong>{pendingCount || mod.pendingReviewCount} new draft{(pendingCount || mod.pendingReviewCount) === 1 ? "" : "s"}</strong>{" "}
-            waiting for review. Approve items you want in the live bank — or clear them to regenerate without duplicates.
+            waiting for review. Approve items you want in the live bank — or clear unused drafts to regenerate without duplicates.
+          </div>
+        )}
+        {clearableCount > 0 && pendingCount === 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {clearableCount} unused draft{clearableCount === 1 ? "" : "s"} (not in the live bank) can block fresh generation.
+            Use <strong>Clear unused drafts</strong> before regenerating.
           </div>
         )}
         {mod?.bankStatus === "updated" && (
@@ -603,6 +613,12 @@ export function ModuleQuestionsPage() {
             <div className="flex flex-wrap items-center gap-2 text-xs">
               {pending(item) && (
                 <span className="rounded-full bg-coral/15 px-2 py-0.5 font-semibold text-coral">New draft</span>
+              )}
+              {!pending(item) && clearable(item) && item.reviewStatus === "REJECTED" && (
+                <span className="rounded-full bg-red-500/10 px-2 py-0.5 font-semibold text-red-600">Rejected draft</span>
+              )}
+              {!pending(item) && clearable(item) && item.reviewStatus !== "REJECTED" && (
+                <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-700">Unused draft</span>
               )}
               {criticFlagged(item) && (
                 <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-semibold text-amber-700">
@@ -1334,7 +1350,7 @@ export function AIControlPage() {
   });
   const modules = useQuery({ queryKey: ["modules"], queryFn: () => api<any[]>("/api/admin/modules") });
   const selectedModule = modules.data?.find((m) => m.id === moduleId);
-  const selectedPending = selectedModule?.pendingReviewCount ?? 0;
+  const clearableDrafts = selectedModule?.clearableDraftCount ?? selectedModule?.pendingReviewCount ?? 0;
 
   const gens: any[] = q.data?.generations ?? [];
   const sessionJob = useMemo(
@@ -1450,23 +1466,26 @@ export function AIControlPage() {
         <Field label="Count">
           <input className={inputClass} type="number" min={1} max={25} value={count} onChange={(e) => setCount(Number(e.target.value))} />
         </Field>
-        <label className="flex items-center gap-2 pb-2.5 text-sm">
+        <label className="flex cursor-pointer items-center gap-2 pb-2.5 text-sm">
           <input
             type="checkbox"
+            className="h-4 w-4 accent-[#0071e3]"
             checked={replacePendingDrafts}
             onChange={(e) => setReplacePendingDrafts(e.target.checked)}
-            disabled={busy || selectedPending === 0}
+            disabled={busy || !moduleId}
           />
           <span>
-            Replace pending drafts
-            {selectedPending > 0 ? ` (${selectedPending})` : ""}
+            Replace unused drafts
+            {moduleId && clearableDrafts > 0 ? ` (${clearableDrafts})` : ""}
           </span>
         </label>
         <Button disabled={busy || !moduleId}>{busy ? "Generating…" : "Generate question set"}</Button>
       </form>
-      {replacePendingDrafts && selectedPending > 0 && (
+      {replacePendingDrafts && moduleId && (
         <p className="text-xs text-amber-700">
-          Pending drafts for {selectedModule?.code} will be deleted before generation. Approved live-bank questions are kept.
+          {clearableDrafts > 0
+            ? `Will delete ${clearableDrafts} unused draft${clearableDrafts === 1 ? "" : "s"} for ${selectedModule?.code} before generating. Approved live-bank questions are kept.`
+            : `No unused drafts found for ${selectedModule?.code ?? "this module"} right now — generation will still run. Approved questions are never deleted.`}
         </p>
       )}
       {gen.error && <ErrorState error={gen.error} />}

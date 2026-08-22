@@ -31,6 +31,15 @@ import { dashboardMetrics, questionQuality, competencyWeakness } from "../../ser
 import { computeBankStatus, isPendingReview } from "../../services/questions/bankStatus.js";
 import { buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
 
+/** Unused non-live drafts that can be deleted before regenerating (keeps APPROVED / RETIRED). */
+function clearableDraftWhere(moduleId: string): Prisma.QuestionWhereInput {
+  return {
+    moduleId,
+    status: { in: [QuestionStatus.DRAFT, QuestionStatus.AI_VALIDATED] },
+    attemptQuestions: { none: {} },
+  };
+}
+
 export const adminRouter = Router();
 adminRouter.use(requireAuth);
 
@@ -68,6 +77,7 @@ adminRouter.get("/modules", requirePermission("admin.modules.read"), async (_req
 
     const approvedCount = new Map<string, number>();
     const pendingReviewCount = new Map<string, number>();
+    const clearableDraftCount = new Map<string, number>();
     const lastApprovedAt = new Map<string, Date>();
     for (const q of questions) {
       if (q.status === QuestionStatus.APPROVED) {
@@ -77,6 +87,9 @@ adminRouter.get("/modules", requirePermission("admin.modules.read"), async (_req
       }
       if (isPendingReview(q.status, q.reviewStatus)) {
         pendingReviewCount.set(q.moduleId, (pendingReviewCount.get(q.moduleId) ?? 0) + 1);
+      }
+      if (q.status === QuestionStatus.DRAFT || q.status === QuestionStatus.AI_VALIDATED) {
+        clearableDraftCount.set(q.moduleId, (clearableDraftCount.get(q.moduleId) ?? 0) + 1);
       }
     }
 
@@ -90,6 +103,7 @@ adminRouter.get("/modules", requirePermission("admin.modules.read"), async (_req
       modules.map((m) => {
         const pending = pendingReviewCount.get(m.id) ?? 0;
         const approved = approvedCount.get(m.id) ?? 0;
+        const clearable = clearableDraftCount.get(m.id) ?? 0;
         const approvedAt = lastApprovedAt.get(m.id) ?? null;
         const generatedAt = lastGeneratedAt.get(m.id) ?? null;
         const bankStatus = computeBankStatus(pending, approvedAt, generatedAt);
@@ -99,6 +113,7 @@ adminRouter.get("/modules", requirePermission("admin.modules.read"), async (_req
           approvedCount: approved,
           liveBankCount: approved,
           pendingReviewCount: pending,
+          clearableDraftCount: clearable,
           bankStatus,
           lastApprovedAt: approvedAt?.toISOString() ?? null,
           lastGeneratedAt: generatedAt?.toISOString() ?? null,
@@ -600,20 +615,13 @@ adminRouter.post(
       const mod = await prisma.module.findUnique({ where: { id: moduleId }, select: { id: true, code: true } });
       if (!mod) throw notFound("Module not found");
 
-      const pendingWhere: Prisma.QuestionWhereInput = {
-        moduleId,
-        reviewStatus: ReviewStatus.PENDING,
-        status: { in: [QuestionStatus.DRAFT, QuestionStatus.AI_VALIDATED] },
-        attemptQuestions: { none: {} },
-      };
-
       const candidates = await prisma.question.findMany({
-        where: pendingWhere,
+        where: clearableDraftWhere(moduleId),
         select: { id: true },
       });
       const ids = candidates.map((q) => q.id);
       if (ids.length === 0) {
-        res.json({ moduleId, deleted: 0, message: "No pending drafts to clear." });
+        res.json({ moduleId, deleted: 0, message: "No unused drafts to clear." });
         return;
       }
 
@@ -629,7 +637,7 @@ adminRouter.post(
       res.json({
         moduleId,
         deleted: deleted.count,
-        message: `Cleared ${deleted.count} pending draft${deleted.count === 1 ? "" : "s"}.`,
+        message: `Cleared ${deleted.count} unused draft${deleted.count === 1 ? "" : "s"}.`,
       });
     } catch (e) {
       next(e);
@@ -701,12 +709,7 @@ adminRouter.post(
       let clearedPending = 0;
       if (replacePendingDrafts) {
         const pending = await prisma.question.findMany({
-          where: {
-            moduleId,
-            reviewStatus: ReviewStatus.PENDING,
-            status: { in: [QuestionStatus.DRAFT, QuestionStatus.AI_VALIDATED] },
-            attemptQuestions: { none: {} },
-          },
+          where: clearableDraftWhere(moduleId),
           select: { id: true },
         });
         if (pending.length) {
