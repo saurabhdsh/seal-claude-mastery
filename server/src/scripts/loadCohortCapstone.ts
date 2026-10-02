@@ -48,6 +48,9 @@ const COHORT: { firstName: string; lastName: string; username: string }[] = [
   { firstName: "Rishit", lastName: "Srivastava", username: "rishit.srivastava" },
 ];
 
+/** Separate from the admin login. Used only to sit the capstone. */
+const TESTER = { firstName: "Saurabh", lastName: "Dubey", username: "saurabh.dubey" };
+
 const LEVEL_MIX = { FOUNDATION: 0.1, PRACTITIONER: 0.2, ADVANCED: 0.35, EXPERT: 0.35 };
 const DIFFICULTY_MIX = { HARD: 0.2, VERY_HARD: 0.3, EXPERT: 0.3, ADVERSARIAL: 0.2 };
 const TYPE_MIX = {
@@ -167,7 +170,7 @@ async function main() {
   const startsAt = new Date();
   const expiresAt = new Date(Date.now() + 21 * 86400000);
 
-  for (const row of COHORT) {
+  for (const row of [...COHORT, TESTER]) {
     const trainee = await upsertTrainee(row, passwordHash);
     if (trainee.created) created += 1;
     else updated += 1;
@@ -188,7 +191,7 @@ async function main() {
         assignedLevel: "EXPERT",
         startsAt,
         expiresAt,
-        maxAttempts: 1,
+        maxAttempts: row.username === TESTER.username ? 3 : 1,
         status: AssignmentStatus.ACTIVE,
       },
     });
@@ -210,7 +213,8 @@ async function main() {
         attempts: 1,
         expiresInDays: 21,
         password: PASSWORD,
-        logins: COHORT.map((r) => r.username),
+        tester: TESTER.username,
+        logins: [...COHORT.map((r) => r.username), TESTER.username],
       },
       null,
       2,
