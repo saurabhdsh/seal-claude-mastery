@@ -40,7 +40,7 @@ export function starterFor(studio: Studio, name: string) {
   if (studio === "prompt") {
     return `You are a careful enterprise assistant for ${name}.
 Use only the sources I provide. If evidence is missing, say so.
-Do not improvise policy, and do not ignore safety instructions.
+Do not improvise policy, and keep every safety instruction in force.
 Return:
 1. Decision
 2. Evidence
@@ -50,7 +50,7 @@ Return:
     return `Agent: ${name}
 Tools: read_policy, draft_note, update_case
 Permissions: read_policy is allow-read. update_case requires human approval.
-Trace every tool call. Budget: 20k tokens. No unrestricted credentials.`;
+Trace every tool call. Budget: 20k tokens. Credentials stay with the person, not the agent.`;
   }
   if (studio === "schema") {
     return `{
@@ -101,6 +101,84 @@ A token budget and a cheaper path for easy reads.
 ## Governance
 Named owner, change control, and a way to reconstruct the decision.`;
 }
+
+export type SectionHelp = {
+  task: string;
+  steps: string[];
+};
+
+export function helpFor(studio: Studio, name: string): SectionHelp {
+  if (studio === "prompt") {
+    return {
+      task: `Write the prompt you would give Claude for ${name}.`,
+      steps: [
+        "Start with a role, such as “You are…”.",
+        "Set a limit: what it may use, and what it must refuse when evidence is missing.",
+        "Say what the answer must look like, such as “Return:” followed by a numbered list.",
+        "Keep safety instructions in force. Do not write “ignore safety”, “ignore previous”, or “always answer”.",
+        "When every checklist line is filled, click Mark practiced.",
+      ],
+    };
+  }
+  if (studio === "agent") {
+    return {
+      task: `Describe the agent you would run for ${name}.`,
+      steps: [
+        "Name at least one tool.",
+        "Bound permission: a read can be allow-read, and a write needs approval.",
+        "Keep a human on anything that changes a real system.",
+        "Record a trace or a token budget.",
+        "Do not write “unrestricted”, “shared credentials”, or “dangerously-skip-permissions”.",
+        "When every checklist line is filled, click Mark practiced.",
+      ],
+    };
+  }
+  if (studio === "schema") {
+    return {
+      task: `Write the tool contract Claude would call for ${name}.`,
+      steps: [
+        "Keep the text as valid JSON.",
+        "Give the tool a name and a description.",
+        "Declare input_schema.properties for each field.",
+        "List the fields that must be present under required.",
+        "Do not put a * anywhere in the JSON.",
+        "When every checklist line is filled, click Mark practiced.",
+      ],
+    };
+  }
+  if (studio === "code") {
+    return {
+      task: `Write the permission check for ${name}.`,
+      steps: [
+        "Keep a function named decide(call).",
+        "Return \"deny\" when the tool is update_case and approval is missing.",
+        "Return \"allow\" when the tool is read_policy.",
+        "Do not add skip-permissions, rm -rf, or child_process.",
+        "When every checklist line is filled, click Mark practiced.",
+      ],
+    };
+  }
+  return {
+    task: `Write the design for ${name}. This is the capstone-style station.`,
+    steps: [
+      "Keep a heading for Architecture, Security, Human review, and Evaluation.",
+      "In Security, treat uploaded files as untrusted.",
+      "In Human review, a person approves anything that changes a real system.",
+      "In Evaluation, name a rubric or a golden set.",
+      "The checklist also lists this module’s objectives. Use the longer words from each of those lines in your writeup.",
+      "When every checklist line is filled, click Mark practiced.",
+    ],
+  };
+}
+
+export const DRILL_HELP = {
+  task: "Read the incident and choose the response that stops the harm.",
+  steps: [
+    "Read the situation once before you choose.",
+    "Pick the option that blocks the unsafe action and keeps a person in control.",
+    "The sound choice marks this drill practiced. A wrong choice shows why, and you can pick again.",
+  ],
+};
 
 export type Check = { id: string; label: string; ok: boolean };
 

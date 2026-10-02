@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getToken } from "../lib/api";
 import { useAuth } from "../stores/auth";
 import { Button, ErrorState, LevelBadge, Skeleton } from "../components/ui";
-import { DRILLS, checksFor, starterFor, studioFor, type Studio } from "../playground/studio";
+import { DRILL_HELP, DRILLS, checksFor, helpFor, starterFor, studioFor, type Studio } from "../playground/studio";
 
 type ModuleRow = {
   id: string;
@@ -114,6 +114,30 @@ function PracticeClock() {
   );
 }
 
+function WhatToDo({ task, steps, objectives }: { task: string; steps: string[]; objectives?: string[] }) {
+  return (
+    <section className="rounded-2xl border border-[#0071e3]/20 bg-[#f4f8fd] px-4 py-4">
+      <div className="text-[11px] uppercase tracking-[0.16em] text-[#0071e3]">What to do</div>
+      <p className="mt-2 text-sm leading-6">{task}</p>
+      {objectives && objectives.length > 0 && (
+        <div className="mt-3">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">This section practices</div>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-6">
+            {objectives.map((objective) => (
+              <li key={objective}>{objective}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6">
+        {steps.map((step) => (
+          <li key={step}>{step}</li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 const STUDIO_LABEL: Record<Studio, string> = {
   prompt: "Prompt studio",
   agent: "Agent builder",
@@ -160,6 +184,7 @@ export function PlaygroundPage() {
   const drill = DRILLS.find((d) => d.id === code);
   const studio: Studio = selected ? studioFor(selected.code, selected.level) : "design";
   const text = drafts[code] ?? (selected ? starterFor(studio, selected.name) : "");
+  const help = selected ? helpFor(studio, selected.name) : null;
   const checks = selected ? checksFor(studio, text, selected.objectives ?? []) : [];
   const ready = checks.length > 0 && checks.every((c) => c.ok);
   const doneCount = completed.length;
@@ -241,6 +266,7 @@ export function PlaygroundPage() {
             <div className="space-y-5">
               <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Drill</div>
               <h2 className="font-serif text-3xl">{drill.title}</h2>
+              <WhatToDo task={DRILL_HELP.task} steps={DRILL_HELP.steps} />
               <p className="text-sm leading-7">{drill.prompt}</p>
               <div className="space-y-2">
                 {drill.options.map((option, i) => {
@@ -277,6 +303,7 @@ export function PlaygroundPage() {
               </div>
               <h2 className="font-serif text-3xl">{selected.code} · {selected.name}</h2>
               <p className="text-sm leading-7 text-[var(--ink-muted)]">{selected.description}</p>
+              {help && <WhatToDo task={help.task} steps={help.steps} objectives={selected.objectives} />}
               <ul className="grid gap-2 text-sm md:grid-cols-2">
                 {checks.map((c) => (
                   <li key={c.id} className={`rounded-xl border px-3 py-2 ${c.ok ? "border-emerald-500/40 bg-emerald-50" : "border-[var(--line)]"}`}>
