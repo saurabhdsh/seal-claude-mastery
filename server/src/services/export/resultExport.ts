@@ -77,13 +77,23 @@ function snapshotText(snapshot: unknown) {
   };
 }
 
-function answerSummary(answer: FullResult["attempt"]["answers"][number] | undefined) {
-  if (!answer) return "—";
-  if (answer.textResponse?.trim()) return answer.textResponse.trim().slice(0, 500);
-  if (answer.selectedKeys?.length) return answer.selectedKeys.join(", ");
-  if (answer.sequence) return JSON.stringify(answer.sequence);
-  if (answer.matchPairs) return JSON.stringify(answer.matchPairs);
-  return "—";
+function optionBodies(q: FullResult["attempt"]["questions"][number]) {
+  const snap = (q.snapshot ?? {}) as { options?: { key: string; body: string }[] };
+  const live = q.question.options ?? [];
+  const rows = live.length ? live : snap.options ?? [];
+  return new Map(rows.map((o) => [o.key, o.body]));
+}
+
+function recordedResponse(q: FullResult["attempt"]["questions"][number], answer: FullResult["attempt"]["answers"][number] | undefined) {
+  if (!answer) return "No response recorded";
+  if (answer.textResponse?.trim()) return answer.textResponse.trim();
+  if (answer.selectedKeys?.length) {
+    const bodies = optionBodies(q);
+    return answer.selectedKeys.map((key) => (bodies.get(key) ? `${key}. ${bodies.get(key)}` : key)).join("\n");
+  }
+  if (answer.sequence) return `Sequence: ${JSON.stringify(answer.sequence)}`;
+  if (answer.matchPairs) return `Matches: ${JSON.stringify(answer.matchPairs)}`;
+  return "No response recorded";
 }
 
 export async function buildResultExcel(attemptId: string) {
@@ -207,7 +217,7 @@ export async function buildResultExcel(attemptId: string) {
       q.assignedDifficulty.replaceAll("_", " "),
       snap.questionText || q.question.questionText,
       snap.scenario || q.question.scenario || "",
-      answerSummary(ans),
+      recordedResponse(q, ans),
       ans?.isCorrect == null ? "—" : ans.isCorrect ? "Yes" : "No",
       ans?.pointsAwarded == null ? "—" : Number(ans.pointsAwarded.toFixed(2)),
       ans?.maxPoints == null ? "—" : Number(ans.maxPoints.toFixed(2)),
@@ -339,6 +349,7 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
     doc.fontSize(9).fillColor("#86868b").text(
       `${snap.moduleCode || q.question.module?.code || "—"} · ${q.assignedDifficulty.replaceAll("_", " ")} · ${correct} · ${pts}`,
     );
+    doc.fontSize(9).fillColor("#1d1d1f").text(`Response: ${recordedResponse(q, ans)}`, { width: 500 });
     if (snap.scenario) {
       doc.fontSize(9).fillColor("#636366").text(`Scenario: ${snap.scenario.slice(0, 280)}${snap.scenario.length > 280 ? "…" : ""}`);
     }

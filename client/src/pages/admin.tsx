@@ -1208,6 +1208,19 @@ export function ResultsPage() {
   );
 }
 
+function formatRecordedResponse(item: any, ans: any) {
+  if (!ans) return "No response recorded";
+  if (typeof ans.textResponse === "string" && ans.textResponse.trim()) return ans.textResponse.trim();
+  const options = item.question?.options ?? item.snapshot?.options ?? [];
+  const body = new Map(options.map((o: any) => [o.key, o.body]));
+  if (Array.isArray(ans.selectedKeys) && ans.selectedKeys.length) {
+    return ans.selectedKeys.map((key: string) => (body.get(key) ? `${key}. ${body.get(key)}` : key)).join("\n");
+  }
+  if (ans.sequence) return `Sequence: ${JSON.stringify(ans.sequence)}`;
+  if (ans.matchPairs) return `Matches: ${JSON.stringify(ans.matchPairs)}`;
+  return "No response recorded";
+}
+
 export function ResultDetailPage() {
   const { attemptId } = useParams();
   const q = useQuery({ queryKey: ["result", attemptId], queryFn: () => api<any>(`/api/admin/results/${attemptId}`) });
@@ -1276,6 +1289,27 @@ export function ResultDetailPage() {
         </div>
       </header>
       <ResultProfile result={r} passingScore={passing} />
+      <section className="space-y-3">
+        <h2 className="text-sm text-[var(--ink-muted)]">Recorded responses</h2>
+        {[...(r.attempt.questions ?? [])]
+          .sort((a: any, b: any) => a.position - b.position)
+          .map((item: any) => {
+            const ans = (r.attempt.answers ?? []).find((a: any) => a.questionId === item.questionId);
+            return (
+              <article key={item.id} className="rounded-2xl border border-[var(--line)] p-4">
+                <div className="text-xs text-[var(--ink-muted)]">
+                  Q{item.position + 1} · {item.question?.module?.code ?? "—"} ·{" "}
+                  {ans?.isCorrect == null ? "—" : ans.isCorrect ? "Correct" : "Incorrect"}
+                </div>
+                <p className="mt-2 text-sm leading-6">{item.question?.questionText}</p>
+                <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
+                  <span className="font-medium">Response: </span>
+                  {formatRecordedResponse(item, ans)}
+                </p>
+              </article>
+            );
+          })}
+      </section>
       <section>
         <h2 className="mb-2 text-sm text-[var(--ink-muted)]">Integrity timeline</h2>
         <ul className="space-y-1 text-xs">
