@@ -115,7 +115,7 @@ export function helpFor(studio: Studio, name: string): SectionHelp {
         "Start with a role, such as “You are…”.",
         "Set a limit: what it may use, and what it must refuse when evidence is missing.",
         "Say what the answer must look like, such as “Return:” followed by a numbered list.",
-        "Keep safety instructions in force. Do not write “ignore safety”, “ignore previous”, or “always answer”.",
+        "Keep safety instructions in force. “Do not ignore safety instructions” is fine. Telling the model to ignore previous instructions, or to always answer, is not.",
         "When every checklist line is filled, click Mark practiced.",
       ],
     };
@@ -128,7 +128,7 @@ export function helpFor(studio: Studio, name: string): SectionHelp {
         "Bound permission: a read can be allow-read, and a write needs approval.",
         "Keep a human on anything that changes a real system.",
         "Record a trace or a token budget.",
-        "Do not write “unrestricted”, “shared credentials”, or “dangerously-skip-permissions”.",
+        "“No unrestricted credentials” is fine. Do not give the agent skip-permissions or a shared login.",
         "When every checklist line is filled, click Mark practiced.",
       ],
     };
@@ -186,13 +186,26 @@ function has(text: string, pattern: RegExp) {
   return pattern.test(text);
 }
 
+/** "Do not ignore safety" is a limit, not a jailbreak. Strip those phrases before the check. */
+function withoutNegatedSafety(text: string) {
+  return text.replace(/\b(?:do not|don't|never|no)\s+ignore\s+safety\b/gi, "");
+}
+
+function withoutNegatedRisk(text: string) {
+  return text
+    .replace(/\bno\s+unrestricted\b/gi, "")
+    .replace(/\b(?:do not|don't|never)\s+(?:use\s+)?unrestricted\b/gi, "")
+    .replace(/\bno\s+shared credentials\b/gi, "")
+    .replace(/\b(?:do not|don't|never)\s+share(?:d)?\s+credentials\b/gi, "");
+}
+
 export function checksFor(studio: Studio, text: string, objectives: string[]): Check[] {
   if (studio === "prompt") {
     return [
       { id: "role", label: "Names a role", ok: has(text, /you are|act as/i) },
       { id: "limit", label: "Sets a limit or a refusal", ok: has(text, /do not|never|only|if .* missing|refuse/i) },
       { id: "output", label: "States the output shape", ok: has(text, /return|format|json|1\.|sections/i) },
-      { id: "safety", label: "Leaves safety instructions intact", ok: text.trim().length > 40 && !has(text, /ignore (previous|all|safety)|always answer/i) },
+      { id: "safety", label: "Leaves safety instructions intact", ok: text.trim().length > 40 && !has(withoutNegatedSafety(text), /ignore (previous|all|safety)|always answer/i) },
     ];
   }
   if (studio === "agent") {
@@ -201,7 +214,7 @@ export function checksFor(studio: Studio, text: string, objectives: string[]): C
       { id: "priv", label: "Bounds permission", ok: has(text, /permission|least privilege|allow-read|approval/i) },
       { id: "human", label: "Keeps a human on material actions", ok: has(text, /human|approval|hitl/i) },
       { id: "trace", label: "Records a trace or a budget", ok: has(text, /trace|log|budget|token/i) },
-      { id: "safe", label: "Avoids an unrestricted agent", ok: text.trim().length > 40 && !has(text, /unrestricted|dangerously-skip-permissions|shared credentials/i) },
+      { id: "safe", label: "Avoids an unrestricted agent", ok: text.trim().length > 40 && !has(withoutNegatedRisk(text), /unrestricted|dangerously-skip-permissions|shared credentials/i) },
     ];
   }
   if (studio === "schema") {
