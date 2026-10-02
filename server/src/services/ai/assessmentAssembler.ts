@@ -20,6 +20,7 @@ export type AssemblerInput = {
   targetCount?: number | null;
   levelMix: Partial<Record<CurriculumLevel, number>>;
   difficultyMix: Partial<Record<DifficultyBand, number>>;
+  typeMix?: Partial<Record<QuestionType, number>>;
   moduleIds: string[];
   moduleWeights: Record<string, number>;
   adaptiveAbility?: number;
@@ -59,6 +60,12 @@ function mulberry32(seed: number) {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+/** When a mix is set, bands that are omitted score 0 so the paper stays on the requested difficulty. */
+function mixWeight(mix: Partial<Record<string, number>> | undefined, key: string, fallback: number) {
+  if (!mix || Object.keys(mix).length === 0) return fallback;
+  return mix[key] ?? 0;
 }
 
 function seedFrom(parts: string[]) {
@@ -108,9 +115,11 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
 
     for (const q of candidates) {
       const modNeed = proportionScore(moduleCount[q.moduleId] ?? 0, input.moduleWeights[q.moduleId] ?? 1, total || 1);
-      const levelNeed = proportionScore(levelCount[q.level] ?? 0, input.levelMix[q.level] ?? 0.1, total || 1);
-      const diffNeed = proportionScore(diffCount[q.difficulty] ?? 0, input.difficultyMix[q.difficulty] ?? 0.1, total || 1);
-      const typeNeed = 1 / (1 + (typeCount[q.questionType] ?? 0));
+      const levelNeed = proportionScore(levelCount[q.level] ?? 0, mixWeight(input.levelMix, q.level, 0.1), total || 1);
+      const diffNeed = proportionScore(diffCount[q.difficulty] ?? 0, mixWeight(input.difficultyMix, q.difficulty, 0.1), total || 1);
+      const typeNeed = input.typeMix
+        ? proportionScore(typeCount[q.questionType] ?? 0, mixWeight(input.typeMix, q.questionType, 0), total || 1)
+        : 1 / (1 + (typeCount[q.questionType] ?? 0));
       const freshness = 1 / (1 + q.usageCount * 0.35);
       const recency = q.lastUsedAt ? Math.min(1, (Date.now() - q.lastUsedAt.getTime()) / (1000 * 60 * 60 * 24 * 21)) : 1;
       const competencyNeed =

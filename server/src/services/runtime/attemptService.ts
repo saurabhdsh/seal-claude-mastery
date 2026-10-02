@@ -107,7 +107,10 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
   if (attempt.status !== AttemptStatus.PENDING) throw locked("Attempt cannot be started");
 
   const template = attempt.assignment.template;
-  const targetCount = STANDARD_QUESTION_COUNT;
+  const targetCount = Math.min(
+    80,
+    Math.max(1, template.targetQuestionCount ?? STANDARD_QUESTION_COUNT),
+  );
   const moduleIds = template.modules.map((m) => m.moduleId);
   if (moduleIds.length === 0) {
     throw badRequest("This assessment has no curriculum modules. Add modules to the template before starting.");
@@ -146,6 +149,10 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
   );
   const levelMix = asLevelMix(template.levelMix, template.targetLevel, template.mode);
   const difficultyMix = asDifficultyMix(template.difficultyMix, template.targetLevel);
+  const typeMix =
+    template.typeMix && typeof template.typeMix === "object" && !Array.isArray(template.typeMix)
+      ? (template.typeMix as Partial<Record<AssemblerQuestion["questionType"], number>>)
+      : undefined;
 
   const assembled = assembleAssessment(
     {
@@ -155,6 +162,7 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
       targetCount,
       levelMix,
       difficultyMix,
+      typeMix,
       moduleIds,
       moduleWeights,
     },
