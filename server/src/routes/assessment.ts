@@ -14,6 +14,7 @@ import {
 } from "../services/runtime/attemptService.js";
 import { IntegrityEventType } from "@prisma/client";
 import { STANDARD_QUESTION_COUNT } from "../services/ai/assessmentAssembler.js";
+import { assertAssessmentOpen, getPlatformAccess } from "../services/platform/access.js";
 
 export const assessmentRouter = Router();
 assessmentRouter.use(requireAuth);
@@ -28,7 +29,7 @@ assessmentRouter.get("/mine", requirePermission("assessment.take", "admin.result
       include: { template: { include: { modules: { include: { module: true } } } }, attempts: true },
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     });
-    res.json({ assignments });
+    res.json({ assignments, access: await getPlatformAccess() });
   } catch (e) {
     next(e);
   }
@@ -99,6 +100,7 @@ assessmentRouter.get("/assignments/:id/instructions", requirePermission("assessm
 
 assessmentRouter.post("/assignments/:id/start", requirePermission("assessment.take"), async (req, res, next) => {
   try {
+    await assertAssessmentOpen();
     if (!req.user!.traineeProfileId) throw forbidden();
     const attempt = await startAttempt(req.params.id, req.user!.traineeProfileId);
     res.json({ attemptId: attempt.id, status: attempt.status });
@@ -109,6 +111,7 @@ assessmentRouter.post("/assignments/:id/start", requirePermission("assessment.ta
 
 assessmentRouter.post("/attempts/:id/begin", requirePermission("assessment.take"), async (req, res, next) => {
   try {
+    await assertAssessmentOpen();
     const session = await acknowledgeAndBegin(req.params.id, req.user!.traineeProfileId!);
     res.json(session);
   } catch (e) {
@@ -118,6 +121,7 @@ assessmentRouter.post("/attempts/:id/begin", requirePermission("assessment.take"
 
 assessmentRouter.get("/attempts/:id", requirePermission("assessment.take"), async (req, res, next) => {
   try {
+    await assertAssessmentOpen();
     res.json(await getAttemptForTrainee(req.params.id, req.user!.traineeProfileId!));
   } catch (e) {
     next(e);
@@ -141,6 +145,7 @@ assessmentRouter.put(
   ),
   async (req, res, next) => {
     try {
+      await assertAssessmentOpen();
       res.json(await saveAnswer(req.params.id, req.user!.traineeProfileId!, req.body));
     } catch (e) {
       next(e);
@@ -160,6 +165,7 @@ assessmentRouter.post(
   ),
   async (req, res, next) => {
     try {
+      await assertAssessmentOpen();
       await recordIntegrity(
         req.params.id,
         req.user!.traineeProfileId!,
@@ -177,6 +183,7 @@ assessmentRouter.post(
 
 assessmentRouter.post("/attempts/:id/submit", requirePermission("assessment.take"), async (req, res, next) => {
   try {
+    await assertAssessmentOpen();
     const result = await submitAttempt(req.params.id, req.user!.traineeProfileId!);
     res.json(result);
   } catch (e) {

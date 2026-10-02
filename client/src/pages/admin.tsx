@@ -26,6 +26,7 @@ export function DashboardPage() {
   const d = q.data;
   return (
     <div className="space-y-8">
+      <PlatformAccessCard />
       <header>
         <div className="text-[11px] uppercase tracking-[0.18em] text-[var(--ink-muted)]">Operations</div>
         <h1 className="mt-1 font-serif text-4xl">Command center</h1>
@@ -99,6 +100,45 @@ export function DashboardPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+function PlatformAccessCard() {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const q = useQuery({
+    queryKey: ["platform-access"],
+    queryFn: () => api<{ assessmentEnabled: boolean; playgroundEnabled: boolean }>("/api/admin/platform/access"),
+    enabled: user?.role === "SUPER_ADMIN",
+  });
+  const save = useMutation({
+    mutationFn: (body: { assessmentEnabled?: boolean; playgroundEnabled?: boolean }) =>
+      api("/api/admin/platform/access", { method: "PATCH", body: JSON.stringify(body) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["platform-access"] }),
+  });
+  if (user?.role !== "SUPER_ADMIN" || !q.data) return null;
+  const row = (label: string, on: boolean, key: "assessmentEnabled" | "playgroundEnabled", detail: string) => (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--line)] px-4 py-3">
+      <div>
+        <div className="font-medium">{label}</div>
+        <p className="text-sm text-[var(--ink-muted)]">{detail}</p>
+      </div>
+      <Button
+        variant={on ? "primary" : "ghost"}
+        disabled={save.isPending}
+        onClick={() => save.mutate({ [key]: !on })}
+      >
+        {on ? "Open" : "Closed"}
+      </Button>
+    </div>
+  );
+  return (
+    <section className="space-y-3 rounded-3xl border border-[var(--line)] bg-white p-5">
+      <h2 className="font-serif text-2xl">Trainee doors</h2>
+      <p className="text-sm text-[var(--ink-muted)]">Only a super admin can change these. Closed doors are refused by the server.</p>
+      {row("Assessment", q.data.assessmentEnabled, "assessmentEnabled", "Timed sitting. Close this until exam day.")}
+      {row("Playground", q.data.playgroundEnabled, "playgroundEnabled", "Curriculum practice. Leave this open while people prepare.")}
+    </section>
   );
 }
 

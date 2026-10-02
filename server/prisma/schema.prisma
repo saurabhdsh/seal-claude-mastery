@@ -214,9 +214,19 @@ model TraineeProfile {
 
   assignments    AssessmentAssignment[]
   attempts       AssessmentAttempt[]
+  playground     PlaygroundWorkspace?
 
   @@index([assignedLevel])
   @@index([lastName, firstName])
+}
+
+model PlaygroundWorkspace {
+  id         String         @id @default(cuid())
+  traineeId  String         @unique
+  trainee    TraineeProfile @relation(fields: [traineeId], references: [id], onDelete: Cascade)
+  state      Json
+  updatedAt  DateTime       @updatedAt
+  createdAt  DateTime       @default(now())
 }
 
 model Domain {

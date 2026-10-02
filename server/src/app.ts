@@ -8,6 +8,7 @@ import { authRouter } from "./routes/auth.js";
 import { adminRouter } from "./routes/admin/index.js";
 import { assessmentRouter } from "./routes/assessment.js";
 import { profileRouter } from "./routes/profile.js";
+import { playgroundRouter } from "./routes/playground.js";
 import { errorHandler } from "./middleware/error.js";
 
 export function createApp() {
@@ -31,6 +32,7 @@ export function createApp() {
   app.use("/api/admin", apiLimit as unknown as express.RequestHandler, adminRouter);
   app.use("/api/assessment", apiLimit as unknown as express.RequestHandler, assessmentRouter);
   app.use("/api/profile", apiLimit as unknown as express.RequestHandler, profileRouter);
+  app.use("/api/playground", apiLimit as unknown as express.RequestHandler, playgroundRouter);
   app.use(errorHandler as express.ErrorRequestHandler);
   return app;
 }

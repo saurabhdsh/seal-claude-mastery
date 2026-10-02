@@ -17,7 +17,7 @@ import { validate } from "../../middleware/error.js";
 import { audit } from "../../lib/audit.js";
 import { notify } from "../../lib/notify.js";
 import { hashPassword, assertPassword } from "../../services/auth/authService.js";
-import { badRequest, conflict, notFound } from "../../lib/errors.js";
+import { badRequest, conflict, forbidden, notFound } from "../../lib/errors.js";
 import { generateQuestionSet, PROMPT_VERSION } from "../../services/ai/questionGenerator.js";
 import { critiqueQuestion } from "../../services/ai/difficultyCalibrator.js";
 import { getGenerationQueue } from "../../jobs/worker.js";
@@ -29,6 +29,7 @@ import { activeProviderName } from "../../config/env.js";
 import { fingerprintQuestion } from "../../services/questions/fingerprint.js";
 import { dashboardMetrics, questionQuality, competencyWeakness } from "../../services/analytics/queries.js";
 import { computeBankStatus, isPendingReview } from "../../services/questions/bankStatus.js";
+import { getPlatformAccess, setPlatformAccess } from "../../services/platform/access.js";
 import { buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
 
 /** Unused non-live drafts that can be deleted before regenerating (keeps APPROVED / RETIRED). */
@@ -1179,6 +1180,37 @@ adminRouter.patch("/ai/settings", requirePermission("admin.config"), async (req,
     });
     await audit({ actorId: req.user!.id, action: "configuration.changed", resourceType: "SystemConfiguration", resourceId: "ai_models", after: req.body, req });
     res.json(row);
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get("/platform/access", requirePermission("admin.dashboard"), async (_req, res, next) => {
+  try {
+    res.json(await getPlatformAccess());
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.patch("/platform/access", requirePermission("admin.dashboard"), async (req, res, next) => {
+  try {
+    if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can open or close the assessment and playground");
+    const current = await getPlatformAccess();
+    const nextAccess = {
+      assessmentEnabled: typeof req.body.assessmentEnabled === "boolean" ? req.body.assessmentEnabled : current.assessmentEnabled,
+      playgroundEnabled: typeof req.body.playgroundEnabled === "boolean" ? req.body.playgroundEnabled : current.playgroundEnabled,
+    };
+    const saved = await setPlatformAccess(nextAccess, req.user!.id);
+    await audit({
+      actorId: req.user!.id,
+      action: "platform.access_changed",
+      resourceType: "SystemConfiguration",
+      resourceId: "platform_access",
+      after: saved,
+      req,
+    });
+    res.json(saved);
   } catch (e) {
     next(e);
   }

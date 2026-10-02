@@ -23,6 +23,7 @@ import {
   UsersPage,
 } from "./pages/admin";
 import { AssessmentHome, CompletePage, InstructionsPage, SessionPage } from "./pages/assessment";
+import { PlaygroundPage } from "./pages/playground";
 import type { Role } from "./stores/auth";
 
 const STAFF: Role[] = ["SUPER_ADMIN", "ADMIN", "ASSESSMENT_MANAGER", "REVIEWER"];
@@ -71,6 +72,14 @@ export default function App() {
         <Route path="audit" element={<AuditPage />} />
         <Route path="users" element={<UsersPage />} />
       </Route>
+      <Route
+        path="/playground"
+        element={
+          <Gate roles={["TRAINEE"]}>
+            <PlaygroundPage />
+          </Gate>
+        }
+      />
       <Route
         path="/assessment"
         element={
