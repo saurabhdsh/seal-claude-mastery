@@ -104,12 +104,13 @@ export function DashboardPage() {
 
 export function TraineesPage() {
   const [q, setQ] = useState("");
+  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const qc = useQueryClient();
   const list = useQuery({
-    queryKey: ["trainees", q],
-    queryFn: () => api<any>(`/api/admin/trainees?q=${encodeURIComponent(q)}`),
+    queryKey: ["trainees", q, page],
+    queryFn: () => api<any>(`/api/admin/trainees?q=${encodeURIComponent(q)}&page=${page}&pageSize=100`),
   });
   const del = useMutation({
     mutationFn: (id: string) => api(`/api/admin/trainees/${id}`, { method: "DELETE" }),
@@ -124,7 +125,20 @@ export function TraineesPage() {
         </div>
         <Button onClick={() => setOpen(true)}>Create trainee</Button>
       </div>
-      <input className={inputClass + " max-w-md"} placeholder="Search by name or username" value={q} onChange={(e) => setQ(e.target.value)} />
+      <input
+        className={inputClass + " max-w-md"}
+        placeholder="Search by name or username"
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setPage(1);
+        }}
+      />
+      {list.data && (
+        <p className="text-sm text-[var(--ink-muted)]">
+          Showing {list.data.rows.length} of {list.data.total} trainees
+        </p>
+      )}
       {list.isLoading && <Skeleton className="h-40" />}
       {list.error && <ErrorState error={list.error} />}
       {del.error && <ErrorState error={del.error} />}
@@ -173,6 +187,23 @@ export function TraineesPage() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {list.data && list.data.total > list.data.pageSize && (
+        <div className="flex items-center gap-3 text-sm">
+          <Button variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            Previous
+          </Button>
+          <span className="text-[var(--ink-muted)]">
+            Page {list.data.page} of {Math.ceil(list.data.total / list.data.pageSize)}
+          </span>
+          <Button
+            variant="ghost"
+            disabled={page * list.data.pageSize >= list.data.total}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next
+          </Button>
         </div>
       )}
       {open && <CreateTrainee onClose={() => setOpen(false)} />}
