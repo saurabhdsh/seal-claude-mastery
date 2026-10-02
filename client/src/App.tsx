@@ -22,6 +22,7 @@ import {
   TraineesPage,
   UsersPage,
 } from "./pages/admin";
+import { PracticeLogPage } from "./pages/practiceLog";
 import { AssessmentHome, CompletePage, InstructionsPage, SessionPage } from "./pages/assessment";
 import { PlaygroundPage } from "./pages/playground";
 import type { Role } from "./stores/auth";
@@ -58,6 +59,7 @@ export default function App() {
         <Route index element={<Navigate to="dashboard" replace />} />
         <Route path="dashboard" element={<DashboardPage />} />
         <Route path="trainees" element={<TraineesPage />} />
+        <Route path="practice" element={<PracticeLogPage />} />
         <Route path="trainees/:id" element={<TraineeDetailPage />} />
         <Route path="modules" element={<ModulesPage />} />
         <Route path="question-bank" element={<QuestionBankPage />} />

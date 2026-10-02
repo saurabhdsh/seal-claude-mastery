@@ -64,6 +64,7 @@ function UserCard({ onSignOut }: { onSignOut: () => void }) {
 const links = [
   { to: "/admin/dashboard", label: "Command center" },
   { to: "/admin/trainees", label: "Trainees" },
+  { to: "/admin/practice", label: "Practice log", superOnly: true },
   { to: "/admin/modules", label: "Modules" },
   { to: "/admin/question-bank", label: "Question bank" },
   { to: "/admin/assessments", label: "Assessments" },
@@ -75,8 +76,9 @@ const links = [
 ];
 
 export function AdminShell() {
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
   const nav = useNavigate();
+  const visible = links.filter((l) => !l.superOnly || user?.role === "SUPER_ADMIN");
 
   const handleSignOut = async () => {
     await logout();
@@ -99,7 +101,7 @@ export function AdminShell() {
 
           {/* Nav — scrolls if many items, but never pushes user card off screen */}
           <nav className="flex flex-col gap-0.5 overflow-y-auto px-2" style={{ flex: "1 1 0", minHeight: 0 }}>
-            {links.map((l) => (
+            {visible.map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}

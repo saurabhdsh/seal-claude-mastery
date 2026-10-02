@@ -30,6 +30,7 @@ import { fingerprintQuestion } from "../../services/questions/fingerprint.js";
 import { dashboardMetrics, questionQuality, competencyWeakness } from "../../services/analytics/queries.js";
 import { computeBankStatus, isPendingReview } from "../../services/questions/bankStatus.js";
 import { getPlatformAccess, setPlatformAccess } from "../../services/platform/access.js";
+import { practiceLog } from "../../services/platform/practiceClock.js";
 import { buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
 
 /** Unused non-live drafts that can be deleted before regenerating (keeps APPROVED / RETIRED). */
@@ -1180,6 +1181,15 @@ adminRouter.patch("/ai/settings", requirePermission("admin.config"), async (req,
     });
     await audit({ actorId: req.user!.id, action: "configuration.changed", resourceType: "SystemConfiguration", resourceId: "ai_models", after: req.body, req });
     res.json(row);
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get("/playground/practice", requirePermission("admin.dashboard"), async (req, res, next) => {
+  try {
+    if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can view practice logs");
+    res.json(await practiceLog());
   } catch (e) {
     next(e);
   }

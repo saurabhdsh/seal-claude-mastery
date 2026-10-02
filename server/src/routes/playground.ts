@@ -5,6 +5,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { validate } from "../middleware/error.js";
 import { forbidden } from "../lib/errors.js";
 import { assertPlaygroundOpen, getPlatformAccess } from "../services/platform/access.js";
+import { beatClock, readClock, stopClock } from "../services/platform/practiceClock.js";
 
 export const playgroundRouter = Router();
 playgroundRouter.use(requireAuth);
@@ -47,6 +48,35 @@ playgroundRouter.get("/work", async (req, res, next) => {
     if (!req.user!.traineeProfileId) throw forbidden();
     const row = await prisma.playgroundWorkspace.findUnique({ where: { traineeId: req.user!.traineeProfileId } });
     res.json(row?.state ?? { drafts: {}, completed: [] });
+  } catch (e) {
+    next(e);
+  }
+});
+
+playgroundRouter.get("/clock", async (req, res, next) => {
+  try {
+    await assertPlaygroundOpen();
+    if (!req.user!.traineeProfileId) throw forbidden();
+    res.json(await readClock(req.user!.traineeProfileId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+playgroundRouter.post("/clock/beat", async (req, res, next) => {
+  try {
+    await assertPlaygroundOpen();
+    if (!req.user!.traineeProfileId) throw forbidden();
+    res.json(await beatClock(req.user!.traineeProfileId));
+  } catch (e) {
+    next(e);
+  }
+});
+
+playgroundRouter.post("/clock/stop", async (req, res, next) => {
+  try {
+    if (!req.user!.traineeProfileId) throw forbidden();
+    res.json(await stopClock(req.user!.traineeProfileId));
   } catch (e) {
     next(e);
   }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { api, getToken } from "../lib/api";
 import { useAuth } from "../stores/auth";
 import { Button, ErrorState, LevelBadge, Skeleton } from "../components/ui";
 import { DRILLS, checksFor, starterFor, studioFor, type Studio } from "../playground/studio";
@@ -17,6 +17,102 @@ type ModuleRow = {
 };
 
 const LEVELS = ["FOUNDATION", "PRACTITIONER", "ADVANCED", "EXPERT"] as const;
+
+type ClockSnap = {
+  budgetSeconds: number;
+  spentSeconds: number;
+  remainingSeconds: number;
+  open: boolean;
+};
+
+function formatClock(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  return [h, m, sec].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+function formatSpent(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  return `${h}h ${String(m).padStart(2, "0")}m`;
+}
+
+function PracticeClock() {
+  const [snap, setSnap] = useState<(ClockSnap & { at: number }) | null>(null);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    let alive = true;
+    const sync = async () => {
+      try {
+        const data = await api<ClockSnap>("/api/playground/clock/beat", { method: "POST", body: "{}" });
+        if (alive) setSnap({ ...data, at: Date.now() });
+      } catch {
+        /* The studio still works if the clock cannot reach the server. */
+      }
+    };
+    const loadSaved = async () => {
+      try {
+        const saved = await api<ClockSnap>("/api/playground/clock");
+        if (alive) setSnap({ ...saved, at: Date.now() });
+      } catch {
+        /* Beat will fill the clock if this read fails. */
+      }
+    };
+    const stop = () => {
+      const token = getToken();
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      void fetch("/api/playground/clock/stop", { method: "POST", keepalive: true, headers, credentials: "include", body: "{}" });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") stop();
+      else void sync();
+    };
+    void loadSaved().then(sync);
+    const beat = window.setInterval(() => {
+      if (document.visibilityState === "visible") void sync();
+    }, 20000);
+    const tick = window.setInterval(() => {
+      if (document.visibilityState === "visible") setNow(Date.now());
+    }, 1000);
+    window.addEventListener("pagehide", stop);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      alive = false;
+      window.clearInterval(beat);
+      window.clearInterval(tick);
+      window.removeEventListener("pagehide", stop);
+      document.removeEventListener("visibilitychange", onVisibility);
+      stop();
+    };
+  }, []);
+
+  if (!snap) {
+    return (
+      <div className="text-right">
+        <div className="font-serif text-3xl tabular">60:00:00</div>
+        <div className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">practice clock</div>
+      </div>
+    );
+  }
+  const drifted = Math.max(0, Math.floor((now - snap.at) / 1000));
+  const remaining = Math.max(0, snap.remainingSeconds - drifted);
+  const spent = snap.spentSeconds + drifted;
+  const done = remaining === 0;
+  return (
+    <div className="text-right">
+      <div className="font-serif text-4xl tabular tracking-tight">{formatClock(remaining)}</div>
+      <div className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">
+        {done ? "practice block complete" : "remaining of 60 hours"}
+      </div>
+      <div className="mt-1 text-sm text-[var(--ink-muted)]">Spent {formatSpent(spent)}</div>
+    </div>
+  );
+}
 
 const STUDIO_LABEL: Record<Studio, string> = {
   prompt: "Prompt studio",
@@ -87,10 +183,13 @@ export function PlaygroundPage() {
               {user?.trainee?.firstName}, build prompts, agents, tool schemas, and the capstone. Checks run as you type. This does not score your assessment.
             </p>
           </div>
-          <div className="text-right">
-            <div className="font-serif text-3xl tabular">{doneCount}<span className="text-lg text-[var(--ink-muted)]">/{total}</span></div>
-            <div className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">stations practiced</div>
-            <Link to="/assessment" className="mt-3 inline-block text-sm text-coral">Back to home</Link>
+          <div className="flex flex-wrap items-end gap-8">
+            <PracticeClock />
+            <div className="text-right">
+              <div className="font-serif text-3xl tabular">{doneCount}<span className="text-lg text-[var(--ink-muted)]">/{total}</span></div>
+              <div className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">stations practiced</div>
+              <Link to="/assessment" className="mt-3 inline-block text-sm text-coral">Back to home</Link>
+            </div>
           </div>
         </div>
       </header>
