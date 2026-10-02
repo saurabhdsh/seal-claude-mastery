@@ -1371,14 +1371,23 @@ adminRouter.delete("/trainees/:id", requirePermission("admin.trainees.write"), a
       include: { user: true },
     });
     if (!profile) throw notFound("Trainee not found");
-    // Cascade: delete user (traineeProfile cascades via DB relation)
-    await prisma.user.delete({ where: { id: profile.userId } });
+
+    // Attempts do not cascade from the trainee, so remove sittings before the user.
+    await prisma.$transaction(async (tx) => {
+      await tx.assessmentAttempt.deleteMany({ where: { traineeId: profile.id } });
+      await tx.assessmentAssignment.deleteMany({ where: { traineeId: profile.id } });
+      await tx.auditLog.updateMany({ where: { actorId: profile.userId }, data: { actorId: null } });
+      await tx.notificationLog.updateMany({ where: { userId: profile.userId }, data: { userId: null } });
+      await tx.aIUsageLog.updateMany({ where: { actorId: profile.userId }, data: { actorId: null } });
+      await tx.user.delete({ where: { id: profile.userId } });
+    });
+
     await audit({
       actorId: req.user!.id,
       action: "trainee.deleted",
       resourceType: "TraineeProfile",
       resourceId: req.params.id,
-      after: { email: profile.user.email },
+      after: { email: profile.user.email, name: `${profile.firstName} ${profile.lastName}` },
       req,
     });
     res.json({ ok: true });

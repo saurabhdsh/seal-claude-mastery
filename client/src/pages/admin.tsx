@@ -127,6 +127,7 @@ export function TraineesPage() {
       <input className={inputClass + " max-w-md"} placeholder="Search by name or username" value={q} onChange={(e) => setQ(e.target.value)} />
       {list.isLoading && <Skeleton className="h-40" />}
       {list.error && <ErrorState error={list.error} />}
+      {del.error && <ErrorState error={del.error} />}
       {list.data && (
         <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
           <table className="w-full text-left text-sm">
