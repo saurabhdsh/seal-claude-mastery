@@ -23,28 +23,28 @@ export function AssessmentHome() {
         {user?.trainee && <LevelBadge level={user.trainee.assignedLevel} />}
         <span className="text-sm text-[var(--ink-muted)]">{(assessment as any)?.status ?? asg?.status}</span>
       </div>
-      <div className="mt-10 grid gap-4 sm:grid-cols-2">
+      <div className="mt-10 grid items-stretch gap-4 sm:grid-cols-2">
         {q.data?.access?.playgroundEnabled !== false && (
-          <Link to="/playground" className="rounded-3xl border border-[var(--line)] bg-white p-6 shadow-sm transition hover:-translate-y-0.5">
+          <Link to="/playground" className="flex h-full flex-col rounded-3xl border border-[var(--line)] bg-white p-6 shadow-sm transition hover:-translate-y-0.5">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Practice</div>
             <h2 className="mt-2 font-serif text-3xl">Start Playground</h2>
-            <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">
+            <p className="mt-3 flex-1 text-sm leading-6 text-[var(--ink-muted)]">
               Work through every module: prompts, agents, tool schemas, code, and the capstone. Nothing here is scored.
             </p>
-            <div className="mt-6"><Button type="button">Open playground</Button></div>
+            <Button type="button" className="mt-6 w-full">Open playground</Button>
           </Link>
         )}
         {asg && q.data?.access?.assessmentEnabled !== false ? (
-          <Link to={`/assessment/instructions?assignment=${asg.id}`} className="rounded-3xl border border-[var(--line)] bg-white p-6 shadow-sm transition hover:-translate-y-0.5">
+          <Link to={`/assessment/instructions?assignment=${asg.id}`} className="flex h-full flex-col rounded-3xl border border-[var(--line)] bg-white p-6 shadow-sm transition hover:-translate-y-0.5">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Sitting</div>
             <h2 className="mt-2 font-serif text-3xl">Start Assessment</h2>
-            <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">
+            <p className="mt-3 flex-1 text-sm leading-6 text-[var(--ink-muted)]">
               {asg.template?.name ?? "Your assigned assessment"}. Timed, scored, and recorded.
             </p>
-            <div className="mt-6"><Button type="button">Continue to instructions</Button></div>
+            <Button type="button" className="mt-6 w-full">Open assessment</Button>
           </Link>
         ) : (
-          <div className="rounded-3xl border border-dashed border-[var(--line)] bg-white/60 p-6">
+          <div className="flex h-full flex-col rounded-3xl border border-dashed border-[var(--line)] bg-white/60 p-6">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Sitting</div>
             <h2 className="mt-2 font-serif text-3xl">{asg ? "Assessment closed" : "No sitting yet"}</h2>
             <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">
