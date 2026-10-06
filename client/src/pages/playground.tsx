@@ -162,14 +162,11 @@ export function PlaygroundPage() {
 
   useEffect(() => {
     if (!work.data || !catalog.data || hydrated) return;
-    const savedDrafts = work.data.drafts ?? {};
-    const savedCompleted = (work.data.completed ?? []).filter((id) => {
-      if (id.startsWith("drill-")) return true;
-      const mod = catalog.data?.modules.find((m) => m.code === id);
-      const draft = savedDrafts[id];
-      if (!mod || !draft) return false;
-      return !isSampleDraft(studioFor(mod.code, mod.level), mod.name, draft);
-    });
+    const savedDrafts = { ...(work.data.drafts ?? {}) };
+    for (const key of Object.keys(savedDrafts)) {
+      if (isSampleDraft(savedDrafts[key] ?? "")) delete savedDrafts[key];
+    }
+    const savedCompleted = (work.data.completed ?? []).filter((id) => id.startsWith("drill-") || Boolean(savedDrafts[id]));
     setDrafts(savedDrafts);
     setCompleted(savedCompleted);
     setHydrated(true);
@@ -193,13 +190,13 @@ export function PlaygroundPage() {
   const studio: Studio = selected ? studioFor(selected.code, selected.level) : "design";
   const savedDraft = drafts[code];
   const text = selected
-    ? !savedDraft || isSampleDraft(studio, selected.name, savedDraft)
+    ? !savedDraft || isSampleDraft(savedDraft)
       ? starterFor(studio, selected.name)
       : savedDraft
     : "";
   const help = selected ? helpFor(studio, selected.name) : null;
   const checks = selected ? checksFor(studio, text, selected.objectives ?? []) : [];
-  const ready = checks.length > 0 && checks.every((c) => c.ok);
+  const ready = checks.length > 0 && checks.every((c) => c.ok) && !isSampleDraft(text);
   const doneCount = completed.length;
   const total = modules.length + DRILLS.length;
 

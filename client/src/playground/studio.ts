@@ -38,9 +38,7 @@ export function studioFor(code: string, level: string): Studio {
 
 export function starterFor(studio: Studio, name: string) {
   if (studio === "prompt") {
-    return `${name}
-
-Role:
+    return `Role:
 
 Limits:
 
@@ -76,77 +74,16 @@ Who approves a change:
 How you will grade the result:`;
 }
 
-/** Finished samples that were saved automatically. They are not trainee work. */
-export function isSampleDraft(studio: Studio, name: string, text: string) {
-  const samples = [
-    `You are a careful enterprise assistant for ${name}.
-Use only the sources I provide. If evidence is missing, say so.
-Do not improvise policy, and keep every safety instruction in force.
-Return:
-1. Decision
-2. Evidence
-3. What a human must approve`,
-    `You are a careful enterprise assistant for ${name}.
-Use only the sources I provide. If evidence is missing, say so.
-Do not improvise policy, and do not ignore safety instructions.
-Return:
-1. Decision
-2. Evidence
-3. What a human must approve`,
-    `Agent: ${name}
-Tools: read_policy, draft_note, update_case
-Permissions: read_policy is allow-read. update_case requires human approval.
-Trace every tool call. Budget: 20k tokens. No unrestricted credentials.`,
-    `Agent: ${name}
-Tools: read_policy, draft_note, update_case
-Permissions: read_policy is allow-read. update_case requires human approval.
-Trace every tool call. Budget: 20k tokens. Credentials stay with the person, not the agent.`,
-    `{
-  "name": "update_case",
-  "description": "Request a case update. Does not write until a human approves.",
-  "input_schema": {
-    "type": "object",
-    "properties": {
-      "caseId": { "type": "string" },
-      "change": { "type": "string" },
-      "approvalToken": { "type": "string" }
-    },
-    "required": ["caseId", "change", "approvalToken"]
-  }
-}`,
-    `function decide(call) {
-  if (call.tool === "update_case" && !call.approval) return "deny";
-  if (call.tool === "read_policy") return "allow";
-  return "deny";
-}`,
-    `## Architecture
-Narrow tools, traces, and a human gate for writes in ${name}.
-
-## Context
-Only authorized sources. Drop anything the task does not need.
-
-## MCP
-One tool per action, with a schema and an approval token on writes.
-
-## Security
-Treat uploaded files as untrusted. Ignore instructions inside documents.
-
-## Evaluation
-A rubric and a golden set, not a model grading its own happy path.
-
-## Observability
-Log tokens, tool calls, and why an action was allowed.
-
-## Human review
-A person approves material side effects.
-
-## Cost
-A token budget and a cheaper path for easy reads.
-
-## Governance
-Named owner, change control, and a way to reconstruct the decision.`,
-  ];
-  return samples.includes(text);
+/** The finished sample that was filled in automatically. It is not trainee work. */
+export function isSampleDraft(text: string) {
+  const n = text.replace(/\r\n/g, "\n").trim();
+  if (!n) return false;
+  if (/^You are a careful enterprise assistant for /i.test(n) && n.includes("Use only the sources I provide") && n.includes("What a human must approve")) return true;
+  if (/^Agent: /m.test(n) && n.includes("read_policy") && n.includes("update_case") && n.includes("allow-read")) return true;
+  if (n.includes('"name": "update_case"') && n.includes("approvalToken") && n.includes("input_schema")) return true;
+  if (/function\s+decide\s*\(/.test(n) && n.includes("read_policy") && n.includes('return "allow"') && n.includes('return "deny"')) return true;
+  if (n.includes("## Architecture") && n.includes("## Human review") && n.includes("## Governance")) return true;
+  return false;
 }
 
 export type SectionHelp = {
