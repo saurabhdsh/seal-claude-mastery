@@ -38,22 +38,70 @@ export function studioFor(code: string, level: string): Studio {
 
 export function starterFor(studio: Studio, name: string) {
   if (studio === "prompt") {
-    return `You are a careful enterprise assistant for ${name}.
+    return `${name}
+
+Role:
+
+Limits:
+
+Answer shape:`;
+  }
+  if (studio === "agent") {
+    return `${name}
+
+Actions this agent may take:
+
+Who must approve a write:
+
+What gets recorded:`;
+  }
+  if (studio === "schema") {
+    return `{
+  "name": "${name}"
+}`;
+  }
+  if (studio === "code") {
+    return `// ${name}
+// write decide(call) here
+`;
+  }
+  return `${name}
+
+Structure:
+
+Risk:
+
+Who approves a change:
+
+How you will grade the result:`;
+}
+
+/** Finished samples that were saved automatically. They are not trainee work. */
+export function isSampleDraft(studio: Studio, name: string, text: string) {
+  const samples = [
+    `You are a careful enterprise assistant for ${name}.
 Use only the sources I provide. If evidence is missing, say so.
 Do not improvise policy, and keep every safety instruction in force.
 Return:
 1. Decision
 2. Evidence
-3. What a human must approve`;
-  }
-  if (studio === "agent") {
-    return `Agent: ${name}
+3. What a human must approve`,
+    `You are a careful enterprise assistant for ${name}.
+Use only the sources I provide. If evidence is missing, say so.
+Do not improvise policy, and do not ignore safety instructions.
+Return:
+1. Decision
+2. Evidence
+3. What a human must approve`,
+    `Agent: ${name}
 Tools: read_policy, draft_note, update_case
 Permissions: read_policy is allow-read. update_case requires human approval.
-Trace every tool call. Budget: 20k tokens. Credentials stay with the person, not the agent.`;
-  }
-  if (studio === "schema") {
-    return `{
+Trace every tool call. Budget: 20k tokens. No unrestricted credentials.`,
+    `Agent: ${name}
+Tools: read_policy, draft_note, update_case
+Permissions: read_policy is allow-read. update_case requires human approval.
+Trace every tool call. Budget: 20k tokens. Credentials stay with the person, not the agent.`,
+    `{
   "name": "update_case",
   "description": "Request a case update. Does not write until a human approves.",
   "input_schema": {
@@ -65,16 +113,13 @@ Trace every tool call. Budget: 20k tokens. Credentials stay with the person, not
     },
     "required": ["caseId", "change", "approvalToken"]
   }
-}`;
-  }
-  if (studio === "code") {
-    return `function decide(call) {
+}`,
+    `function decide(call) {
   if (call.tool === "update_case" && !call.approval) return "deny";
   if (call.tool === "read_policy") return "allow";
   return "deny";
-}`;
-  }
-  return `## Architecture
+}`,
+    `## Architecture
 Narrow tools, traces, and a human gate for writes in ${name}.
 
 ## Context
@@ -99,7 +144,9 @@ A person approves material side effects.
 A token budget and a cheaper path for easy reads.
 
 ## Governance
-Named owner, change control, and a way to reconstruct the decision.`;
+Named owner, change control, and a way to reconstruct the decision.`,
+  ];
+  return samples.includes(text);
 }
 
 export type SectionHelp = {
