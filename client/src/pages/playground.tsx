@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getToken } from "../lib/api";
 import { useAuth } from "../stores/auth";
 import { Button, ErrorState, LevelBadge, Skeleton } from "../components/ui";
-import { DRILL_HELP, DRILLS, checksFor, helpFor, isSampleDraft, starterFor, studioFor, type Studio } from "../playground/studio";
+import { DRILL_HELP, DRILLS, checksFor, helpFor, starterFor, studioFor, type Studio } from "../playground/studio";
 
 type ModuleRow = {
   id: string;
@@ -163,10 +163,7 @@ export function PlaygroundPage() {
   useEffect(() => {
     if (!work.data || !catalog.data || hydrated) return;
     const savedDrafts = { ...(work.data.drafts ?? {}) };
-    for (const key of Object.keys(savedDrafts)) {
-      if (isSampleDraft(savedDrafts[key] ?? "")) delete savedDrafts[key];
-    }
-    const savedCompleted = (work.data.completed ?? []).filter((id) => id.startsWith("drill-") || Boolean(savedDrafts[id]));
+    const savedCompleted = work.data.completed ?? [];
     setDrafts(savedDrafts);
     setCompleted(savedCompleted);
     setHydrated(true);
@@ -189,14 +186,10 @@ export function PlaygroundPage() {
   const drill = DRILLS.find((d) => d.id === code);
   const studio: Studio = selected ? studioFor(selected.code, selected.level) : "design";
   const savedDraft = drafts[code];
-  const text = selected
-    ? savedDraft === undefined || isSampleDraft(savedDraft)
-      ? starterFor(studio, selected.name)
-      : savedDraft
-    : "";
+  const text = selected ? (savedDraft === undefined ? starterFor(studio, selected.name) : savedDraft) : "";
   const help = selected ? helpFor(studio, selected.name) : null;
   const checks = selected ? checksFor(studio, text, selected.objectives ?? []) : [];
-  const ready = checks.length > 0 && checks.every((c) => c.ok) && !isSampleDraft(text);
+  const ready = checks.length > 0 && checks.every((c) => c.ok);
   const doneCount = completed.length;
   const total = modules.length + DRILLS.length;
 

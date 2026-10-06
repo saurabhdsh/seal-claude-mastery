@@ -74,18 +74,6 @@ Who approves a change:
 How you will grade the result:`;
 }
 
-/** The finished sample that was filled in automatically. It is not trainee work. */
-export function isSampleDraft(text: string) {
-  const n = text.replace(/\r\n/g, "\n").trim();
-  if (!n) return false;
-  if (/^You are a careful enterprise assistant for /i.test(n) && n.includes("Use only the sources I provide") && n.includes("What a human must approve")) return true;
-  if (/^Agent: /m.test(n) && n.includes("read_policy") && n.includes("update_case") && n.includes("allow-read")) return true;
-  if (n.includes('"name": "update_case"') && n.includes("approvalToken") && n.includes("input_schema")) return true;
-  if (/function\s+decide\s*\(/.test(n) && n.includes("read_policy") && n.includes('return "allow"') && n.includes('return "deny"')) return true;
-  if (n.includes("## Architecture") && n.includes("## Human review") && n.includes("## Governance")) return true;
-  return false;
-}
-
 export type SectionHelp = {
   task: string;
   steps: string[];
