@@ -190,7 +190,7 @@ export function PlaygroundPage() {
   const studio: Studio = selected ? studioFor(selected.code, selected.level) : "design";
   const savedDraft = drafts[code];
   const text = selected
-    ? !savedDraft || isSampleDraft(savedDraft)
+    ? savedDraft === undefined || isSampleDraft(savedDraft)
       ? starterFor(studio, selected.name)
       : savedDraft
     : "";
@@ -257,7 +257,7 @@ export function PlaygroundPage() {
                       type="button"
                       onClick={() => {
                         setCode(m.code);
-                        setDrafts((prev) => prev[m.code] ? prev : { ...prev, [m.code]: starterFor(studioFor(m.code, m.level), m.name) });
+                        setDrafts((prev) => (m.code in prev ? prev : { ...prev, [m.code]: starterFor(studioFor(m.code, m.level), m.name) }));
                       }}
                       className={`w-full rounded-xl px-3 py-2 text-left text-sm ${code === m.code ? "bg-[#1d1d1f] text-white" : "hover:bg-white"}`}
                     >
