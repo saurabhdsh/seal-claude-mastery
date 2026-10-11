@@ -32,6 +32,7 @@ import { computeBankStatus, isPendingReview } from "../../services/questions/ban
 import { getPlatformAccess, setPlatformAccess } from "../../services/platform/access.js";
 import { practiceLog } from "../../services/platform/practiceClock.js";
 import { buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
+import { buildPracticeLogExcel, buildTraineesExcel } from "../../services/export/rosterExport.js";
 
 /** Unused non-live drafts that can be deleted before regenerating (keeps APPROVED / RETIRED). */
 function clearableDraftWhere(moduleId: string): Prisma.QuestionWhereInput {
@@ -130,6 +131,17 @@ adminRouter.get("/modules", requirePermission("admin.modules.read"), async (_req
 adminRouter.get("/competencies", requirePermission("admin.modules.read"), async (_req, res, next) => {
   try {
     res.json(await prisma.competency.findMany({ orderBy: { name: "asc" } }));
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get("/trainees/export.xlsx", requirePermission("admin.trainees.read"), async (_req, res, next) => {
+  try {
+    const file = await buildTraineesExcel();
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
   } catch (e) {
     next(e);
   }
@@ -1190,6 +1202,18 @@ adminRouter.get("/playground/practice", requirePermission("admin.dashboard"), as
   try {
     if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can view practice logs");
     res.json(await practiceLog());
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.get("/playground/practice/export.xlsx", requirePermission("admin.dashboard"), async (req, res, next) => {
+  try {
+    if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can export practice logs");
+    const file = await buildPracticeLogExcel();
+    res.setHeader("Content-Type", file.contentType);
+    res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
+    res.send(file.buffer);
   } catch (e) {
     next(e);
   }

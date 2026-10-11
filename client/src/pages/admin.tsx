@@ -147,6 +147,8 @@ export function TraineesPage() {
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const qc = useQueryClient();
   const list = useQuery({
     queryKey: ["trainees", q, page],
@@ -158,13 +160,33 @@ export function TraineesPage() {
   });
   return (
     <div className="space-y-6">
-      <div className="flex items-end justify-between">
+      <div className="flex items-end justify-between gap-3">
         <div>
           <h1 className="font-serif text-4xl">Trainees</h1>
           <p className="mt-1 text-sm text-[var(--ink-muted)]">Search, filter, and inspect capability profiles.</p>
         </div>
-        <Button onClick={() => setOpen(true)}>Create trainee</Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            disabled={exporting || !list.data?.total}
+            onClick={async () => {
+              setExportError(null);
+              setExporting(true);
+              try {
+                await downloadFile("/api/admin/trainees/export.xlsx", "SEAL_Trainees.xlsx");
+              } catch (err) {
+                setExportError(err instanceof Error ? err.message : "Export failed");
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            {exporting ? "Exporting…" : "Export Excel"}
+          </Button>
+          <Button onClick={() => setOpen(true)}>Create trainee</Button>
+        </div>
       </div>
+      {exportError && <ErrorState error={new Error(exportError)} />}
       <input
         className={inputClass + " max-w-md"}
         placeholder="Search by name or username"

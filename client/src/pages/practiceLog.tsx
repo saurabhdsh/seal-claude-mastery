@@ -1,7 +1,7 @@
 import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../lib/api";
-import { ErrorState, Skeleton } from "../components/ui";
+import { api, downloadFile } from "../lib/api";
+import { Button, ErrorState, Skeleton } from "../components/ui";
 
 type SessionRow = {
   id: string;
@@ -53,19 +53,41 @@ export function PracticeLogPage() {
     refetchInterval: 20000,
   });
   const [openId, setOpenId] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   if (q.isLoading) return <Skeleton className="h-64" />;
   if (q.error) return <ErrorState error={q.error} />;
   const data = q.data!;
   return (
     <div className="space-y-6">
-      <header>
-        <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Playground</div>
-        <h1 className="mt-1 font-serif text-4xl">Practice log</h1>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
-          The program is {data.programHours} hours. This clock is the {data.practiceHours}-hour playground block.
-          Time counts only while the playground page is open, and a later login continues from the saved total.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Playground</div>
+          <h1 className="mt-1 font-serif text-4xl">Practice log</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
+            The program is {data.programHours} hours. This clock is the {data.practiceHours}-hour playground block.
+            Time counts only while the playground page is open, and a later login continues from the saved total.
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          disabled={exporting}
+          onClick={async () => {
+            setExportError(null);
+            setExporting(true);
+            try {
+              await downloadFile("/api/admin/playground/practice/export.xlsx", "SEAL_Practice_Log.xlsx");
+            } catch (err) {
+              setExportError(err instanceof Error ? err.message : "Export failed");
+            } finally {
+              setExporting(false);
+            }
+          }}
+        >
+          {exporting ? "Exporting…" : "Export Excel"}
+        </Button>
       </header>
+      {exportError && <ErrorState error={new Error(exportError)} />}
       <div className="grid gap-3 sm:grid-cols-3">
         <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
           <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Cohort time</div>
