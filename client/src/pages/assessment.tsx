@@ -19,9 +19,10 @@ export function AssessmentHome() {
       <h1 className="mt-3 font-serif text-5xl">
         {user?.trainee?.firstName} {user?.trainee?.lastName}
       </h1>
-      <div className="mt-4 flex gap-3">
+      <div className="mt-4 flex flex-wrap items-center gap-3">
         {user?.trainee && <LevelBadge level={user.trainee.assignedLevel} />}
         <span className="text-sm text-[var(--ink-muted)]">{(assessment as any)?.status ?? asg?.status}</span>
+        <Link to="/profile" className="text-sm text-coral">Change password</Link>
       </div>
       <div className="mt-10 grid items-stretch gap-4 sm:grid-cols-2">
         {q.data?.access?.playgroundEnabled !== false && (

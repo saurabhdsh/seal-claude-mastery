@@ -413,9 +413,13 @@ function CreateTrainee({ onClose }: { onClose: () => void }) {
 
 export function TraineeDetailPage() {
   const { id } = useParams();
+  const { user } = useAuth();
   const q = useQuery({ queryKey: ["trainee", id], queryFn: () => api<any>(`/api/admin/trainees/${id}`) });
   const templates = useQuery({ queryKey: ["assessments"], queryFn: () => api<any[]>("/api/admin/assessments") });
   const qc = useQueryClient();
+  const [resetOpen, setResetOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [issuedPassword, setIssuedPassword] = useState<string | null>(null);
   const assign = useMutation({
     mutationFn: (templateId: string) =>
       api(`/api/admin/trainees/${id}/assign`, {
@@ -432,6 +436,18 @@ export function TraineeDetailPage() {
       qc.invalidateQueries({ queryKey: ["trainees"] });
     },
   });
+  const resetPassword = useMutation({
+    mutationFn: () =>
+      api<{ ok: boolean; temporaryPassword: string }>(`/api/admin/trainees/${id}/reset-password`, {
+        method: "POST",
+        body: JSON.stringify({ password: newPassword }),
+      }),
+    onSuccess: (data) => {
+      setIssuedPassword(data.temporaryPassword);
+      setNewPassword("");
+      setResetOpen(false);
+    },
+  });
   if (q.isLoading) return <Skeleton className="h-64" />;
   if (q.error) return <ErrorState error={q.error} />;
   const t = q.data;
@@ -444,7 +460,7 @@ export function TraineeDetailPage() {
         <span className="font-mono">@{t.user.email.endsWith("@seal.local") ? t.user.email.replace("@seal.local", "") : t.user.email}</span>
         <LevelBadge level={t.assignedLevel} />
       </div>
-      <div className="flex gap-3">
+      <div className="flex flex-wrap gap-3">
         <select
           className={inputClass + " max-w-sm"}
           defaultValue=""
@@ -458,13 +474,41 @@ export function TraineeDetailPage() {
             </option>
           ))}
         </select>
-        <Button
-          variant="soft"
-          onClick={() => api(`/api/admin/trainees/${id}/reset-password`, { method: "POST", body: JSON.stringify({ password: "SealTrainee!2026" }) })}
-        >
-          Reset password
-        </Button>
+        {user?.role === "SUPER_ADMIN" && (
+          <Button variant="soft" onClick={() => { setResetOpen((v) => !v); setIssuedPassword(null); }}>
+            Reset password
+          </Button>
+        )}
       </div>
+      {user?.role === "SUPER_ADMIN" && resetOpen && (
+        <div className="max-w-md space-y-3 rounded-2xl border border-[var(--line)] bg-white p-4">
+          <p className="text-sm text-[var(--ink-muted)]">
+            Set a new temporary password. The current password cannot be shown. Copy this new one before you leave the page.
+          </p>
+          <input
+            type="text"
+            className={inputClass}
+            placeholder="New temporary password"
+            autoComplete="off"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+          />
+          {resetPassword.error && <ErrorState error={resetPassword.error} />}
+          <div className="flex gap-2">
+            <Button disabled={resetPassword.isPending || !newPassword} onClick={() => resetPassword.mutate()}>
+              {resetPassword.isPending ? "Saving…" : "Set password"}
+            </Button>
+            <Button variant="ghost" onClick={() => setResetOpen(false)}>Cancel</Button>
+          </div>
+        </div>
+      )}
+      {issuedPassword && (
+        <div className="max-w-md rounded-2xl border border-emerald-500/30 bg-emerald-50 p-4 text-sm">
+          <div className="font-medium text-emerald-900">Temporary password set</div>
+          <p className="mt-1 font-mono text-base text-emerald-950">{issuedPassword}</p>
+          <p className="mt-2 text-emerald-800">Share this once with the trainee. It will not be shown again from the system.</p>
+        </div>
+      )}
       {assign.error && <ErrorState error={assign.error} />}
       <h2 className="text-sm uppercase tracking-[0.14em] text-[var(--ink-muted)]">Assessment history</h2>
       {t.assignments.length === 0 && (
@@ -1710,12 +1754,76 @@ export function AuditPage() {
 
 export function ProfilePage() {
   const { data } = useQuery({ queryKey: ["profile"], queryFn: () => api<any>("/api/profile") });
+  const [form, setForm] = useState({ current: "", next: "", confirm: "" });
+  const [done, setDone] = useState(false);
+  const change = useMutation({
+    mutationFn: () => api("/api/profile/password", { method: "POST", body: JSON.stringify(form) }),
+    onSuccess: () => {
+      setDone(true);
+      setForm({ current: "", next: "", confirm: "" });
+    },
+  });
   return (
-    <div className="mx-auto max-w-lg space-y-4 p-10">
-      <h1 className="font-serif text-4xl">Profile</h1>
-      <p className="text-sm">{data?.email}</p>
-      <p className="text-sm text-[var(--ink-muted)]">{data?.role}</p>
-      {data?.trainee && <LevelBadge level={data.trainee.assignedLevel} />}
+    <div className="app-bg mx-auto min-h-screen max-w-lg space-y-6 px-6 py-12">
+      <div>
+        <Link to={data?.role === "TRAINEE" ? "/assessment" : "/admin/dashboard"} className="text-sm text-coral">
+          Back
+        </Link>
+        <h1 className="mt-3 font-serif text-4xl">Account</h1>
+        <p className="mt-2 text-sm text-[var(--ink-muted)]">
+          Username <span className="font-mono text-[var(--ink)]">@{data?.username ?? "…"}</span>
+        </p>
+        {data?.trainee && (
+          <div className="mt-3">
+            <LevelBadge level={data.trainee.assignedLevel} />
+          </div>
+        )}
+      </div>
+      <section className="space-y-4 rounded-3xl border border-[var(--line)] bg-white p-6">
+        <h2 className="font-serif text-2xl">Change password</h2>
+        <p className="text-sm leading-6 text-[var(--ink-muted)]">
+          Use at least 12 characters, with upper case, lower case, a number, and a symbol. Your password is stored hashed.
+          Nobody, including a super admin, can read the current password. A super admin can only set a new one for you.
+        </p>
+        <Field label="Current password">
+          <input
+            type="password"
+            className={inputClass}
+            autoComplete="current-password"
+            value={form.current}
+            onChange={(e) => setForm({ ...form, current: e.target.value })}
+          />
+        </Field>
+        <Field label="New password">
+          <input
+            type="password"
+            className={inputClass}
+            autoComplete="new-password"
+            value={form.next}
+            onChange={(e) => setForm({ ...form, next: e.target.value })}
+          />
+        </Field>
+        <Field label="Confirm new password">
+          <input
+            type="password"
+            className={inputClass}
+            autoComplete="new-password"
+            value={form.confirm}
+            onChange={(e) => setForm({ ...form, confirm: e.target.value })}
+          />
+        </Field>
+        {change.error && <ErrorState error={change.error} />}
+        {done && <p className="text-sm text-emerald-700">Password updated. Use the new password the next time you sign in.</p>}
+        <Button
+          disabled={change.isPending || !form.current || !form.next || !form.confirm}
+          onClick={() => {
+            setDone(false);
+            change.mutate();
+          }}
+        >
+          {change.isPending ? "Saving…" : "Update password"}
+        </Button>
+      </section>
     </div>
   );
 }

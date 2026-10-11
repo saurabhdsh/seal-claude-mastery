@@ -421,13 +421,18 @@ adminRouter.patch(
 
 adminRouter.post("/trainees/:id/reset-password", requirePermission("admin.trainees.write"), async (req, res, next) => {
   try {
-    const password = String(req.body.password ?? "SealTrainee!2026");
+    if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can reset a trainee password");
+    const password = String(req.body.password ?? "");
     assertPassword(password);
     const t = await prisma.traineeProfile.findUnique({ where: { id: req.params.id } });
     if (!t) throw notFound();
-    await prisma.user.update({ where: { id: t.userId }, data: { passwordHash: await hashPassword(password) } });
+    await prisma.user.update({
+      where: { id: t.userId },
+      data: { passwordHash: await hashPassword(password), passwordChangedAt: new Date(), failedLoginAttempts: 0, lockedUntil: null },
+    });
     await audit({ actorId: req.user!.id, action: "trainee.password_reset", resourceType: "TraineeProfile", resourceId: t.id, req });
-    res.json({ ok: true });
+    // Return the new password once. The previous password is hashed and cannot be shown.
+    res.json({ ok: true, temporaryPassword: password });
   } catch (e) {
     next(e);
   }

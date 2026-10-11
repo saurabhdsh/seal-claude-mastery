@@ -1,7 +1,9 @@
 import { Router } from "express";
 import { prisma } from "../lib/prisma.js";
 import { requireAuth } from "../middleware/auth.js";
-import { assertPassword, hashPassword } from "../services/auth/authService.js";
+import { assertPassword, hashPassword, verifyPassword } from "../services/auth/authService.js";
+import { badRequest } from "../lib/errors.js";
+import { audit } from "../lib/audit.js";
 import { z } from "zod";
 import { validate } from "../middleware/error.js";
 
@@ -14,10 +16,13 @@ profileRouter.get("/", async (req, res, next) => {
       where: { id: req.user!.id },
       include: { traineeProfile: true },
     });
+    const email = user!.email;
     res.json({
       id: user!.id,
-      email: user!.email,
+      email,
+      username: email.endsWith("@seal.local") ? email.replace("@seal.local", "") : email,
       role: user!.role,
+      passwordChangedAt: user!.passwordChangedAt,
       trainee: user!.traineeProfile,
     });
   } catch (e) {
@@ -27,18 +32,32 @@ profileRouter.get("/", async (req, res, next) => {
 
 profileRouter.post(
   "/password",
-  validate(z.object({ current: z.string(), next: z.string() })),
+  validate(
+    z.object({
+      current: z.string().min(1),
+      next: z.string().min(1),
+      confirm: z.string().min(1),
+    }),
+  ),
   async (req, res, next) => {
     try {
+      if (req.body.next !== req.body.confirm) throw badRequest("New password and confirmation do not match");
+      if (req.body.current === req.body.next) throw badRequest("Choose a new password that is different from the current one");
       const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-      const { verifyPassword } = await import("../services/auth/authService.js");
       if (!user || !(await verifyPassword(user.passwordHash, req.body.current))) {
-        return res.status(400).json({ error: "Current password is incorrect" });
+        throw badRequest("Current password is incorrect");
       }
       assertPassword(req.body.next);
       await prisma.user.update({
         where: { id: user.id },
         data: { passwordHash: await hashPassword(req.body.next), passwordChangedAt: new Date() },
+      });
+      await audit({
+        actorId: req.user!.id,
+        action: "profile.password_changed",
+        resourceType: "User",
+        resourceId: user.id,
+        req,
       });
       res.json({ ok: true });
     } catch (e) {

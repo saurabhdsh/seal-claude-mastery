@@ -216,7 +216,10 @@ export function PlaygroundPage() {
             <div className="text-right">
               <div className="font-serif text-3xl tabular">{doneCount}<span className="text-lg text-[var(--ink-muted)]">/{total}</span></div>
               <div className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">stations practiced</div>
-              <Link to="/assessment" className="mt-3 inline-block text-sm text-coral">Back to home</Link>
+              <div className="mt-3 flex flex-col items-end gap-1 text-sm">
+                <Link to="/profile" className="text-coral">Change password</Link>
+                <Link to="/assessment" className="text-coral">Back to home</Link>
+              </div>
             </div>
           </div>
         </div>
