@@ -18,6 +18,9 @@ type TraineeRow = {
   spentSeconds: number;
   remainingSeconds: number;
   sessionCount: number;
+  practicedCount: number;
+  stationTotal: number;
+  practicedStations: string[];
   lastActiveAt: string | null;
   inPlayground: boolean;
   sessions: SessionRow[];
@@ -29,6 +32,8 @@ type PracticeLog = {
   practiceHours: number;
   traineeCount: number;
   inPlayground: number;
+  stationTotal: number;
+  practicedMarks: number;
   spentSeconds: number;
   trainees: TraineeRow[];
 };
@@ -66,7 +71,7 @@ export function PracticeLogPage() {
           <h1 className="mt-1 font-serif text-4xl">Practice log</h1>
           <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--ink-muted)]">
             The program is {data.programHours} hours. This clock is the {data.practiceHours}-hour playground block.
-            Time counts only while the playground page is open, and a later login continues from the saved total.
+            Time counts only while the playground page is open. Mark practiced shows how many stations each trainee completed.
           </p>
         </div>
         <Button
@@ -88,7 +93,7 @@ export function PracticeLogPage() {
         </Button>
       </header>
       {exportError && <ErrorState error={new Error(exportError)} />}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
           <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Cohort time</div>
           <div className="mt-1 font-serif text-3xl tabular">{formatClock(data.spentSeconds)}</div>
@@ -96,6 +101,11 @@ export function PracticeLogPage() {
         <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
           <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">In the playground</div>
           <div className="mt-1 font-serif text-3xl tabular">{data.inPlayground}<span className="text-lg text-[var(--ink-muted)]">/{data.traineeCount}</span></div>
+        </div>
+        <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Mark practiced</div>
+          <div className="mt-1 font-serif text-3xl tabular">{data.practicedMarks}</div>
+          <div className="mt-1 text-xs text-[var(--ink-muted)]">across the cohort · {data.stationTotal} stations each</div>
         </div>
         <div className="rounded-2xl border border-[var(--line)] bg-white p-4">
           <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Block</div>
@@ -107,6 +117,7 @@ export function PracticeLogPage() {
           <thead className="border-b border-[var(--line)] text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">
             <tr>
               <th className="px-4 py-3 font-medium">Trainee</th>
+              <th className="px-4 py-3 font-medium">Mark practiced</th>
               <th className="px-4 py-3 font-medium">Spent</th>
               <th className="px-4 py-3 font-medium">Remaining</th>
               <th className="px-4 py-3 font-medium">Sessions</th>
@@ -123,6 +134,10 @@ export function PracticeLogPage() {
                       <div className="text-xs text-[var(--ink-muted)]">{trainee.employeeId}{trainee.inPlayground ? " · in playground" : ""}</div>
                     </button>
                   </td>
+                  <td className="px-4 py-3 tabular">
+                    <span className="font-medium">{trainee.practicedCount}</span>
+                    <span className="text-[var(--ink-muted)]">/{trainee.stationTotal}</span>
+                  </td>
                   <td className="px-4 py-3 tabular">{formatClock(trainee.spentSeconds)}</td>
                   <td className="px-4 py-3 tabular">{formatClock(trainee.remainingSeconds)}</td>
                   <td className="px-4 py-3 tabular">{trainee.sessionCount}</td>
@@ -130,29 +145,42 @@ export function PracticeLogPage() {
                 </tr>
                 {openId === trainee.id && (
                   <tr className="border-b border-[var(--line)] bg-[#fafafa]">
-                    <td colSpan={5} className="px-4 py-3">
-                      {trainee.sessions.length === 0 ? (
-                        <p className="text-sm text-[var(--ink-muted)]">No practice sessions yet.</p>
-                      ) : (
-                        <table className="w-full text-sm">
-                          <thead className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">
-                            <tr>
-                              <th className="py-1 text-left font-medium">Started</th>
-                              <th className="py-1 text-left font-medium">Ended</th>
-                              <th className="py-1 text-left font-medium">Counted</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {trainee.sessions.map((session) => (
-                              <tr key={session.id}>
-                                <td className="py-1">{formatWhen(session.startedAt)}</td>
-                                <td className="py-1">{session.open ? "Open" : formatWhen(session.endedAt)}</td>
-                                <td className="py-1 tabular">{formatClock(session.activeSeconds)}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      )}
+                    <td colSpan={6} className="px-4 py-3">
+                      <div className="space-y-4">
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Stations marked practiced</div>
+                          {trainee.practicedStations.length === 0 ? (
+                            <p className="mt-1 text-sm text-[var(--ink-muted)]">None yet.</p>
+                          ) : (
+                            <p className="mt-1 font-mono text-sm leading-6">{trainee.practicedStations.join(" · ")}</p>
+                          )}
+                        </div>
+                        <div>
+                          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Sessions</div>
+                          {trainee.sessions.length === 0 ? (
+                            <p className="mt-1 text-sm text-[var(--ink-muted)]">No practice sessions yet.</p>
+                          ) : (
+                            <table className="mt-1 w-full text-sm">
+                              <thead className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">
+                                <tr>
+                                  <th className="py-1 text-left font-medium">Started</th>
+                                  <th className="py-1 text-left font-medium">Ended</th>
+                                  <th className="py-1 text-left font-medium">Counted</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {trainee.sessions.map((session) => (
+                                  <tr key={session.id}>
+                                    <td className="py-1">{formatWhen(session.startedAt)}</td>
+                                    <td className="py-1">{session.open ? "Open" : formatWhen(session.endedAt)}</td>
+                                    <td className="py-1 tabular">{formatClock(session.activeSeconds)}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          )}
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 )}

@@ -127,9 +127,12 @@ export async function stopClock(traineeId: string): Promise<ClockSnapshot> {
   return toClock(await spentSeconds(traineeId), false);
 }
 
+/** Incident drills live in the client catalog alongside curriculum modules. */
+const DRILL_STATION_COUNT = 4;
+
 export async function practiceLog() {
   await sweepStaleSessions();
-  const [trainees, totals, recent] = await Promise.all([
+  const [trainees, totals, recent, workspaces, moduleCount] = await Promise.all([
     prisma.traineeProfile.findMany({
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
       select: { id: true, firstName: true, lastName: true, employeeId: true },
@@ -152,8 +155,21 @@ export async function practiceLog() {
         activeSeconds: true,
       },
     }),
+    prisma.playgroundWorkspace.findMany({
+      select: { traineeId: true, state: true, updatedAt: true },
+    }),
+    prisma.module.count(),
   ]);
+  const stationTotal = moduleCount + DRILL_STATION_COUNT;
   const byTrainee = new Map(totals.map((row) => [row.traineeId, row]));
+  const practicedByTrainee = new Map<string, string[]>();
+  for (const row of workspaces) {
+    const state = (row.state ?? {}) as { completed?: unknown };
+    const completed = Array.isArray(state.completed)
+      ? state.completed.filter((id): id is string => typeof id === "string")
+      : [];
+    practicedByTrainee.set(row.traineeId, [...new Set(completed)]);
+  }
   const sessionsByTrainee = new Map<string, typeof recent>();
   for (const session of recent) {
     const list = sessionsByTrainee.get(session.traineeId) ?? [];
@@ -164,6 +180,7 @@ export async function practiceLog() {
     const total = byTrainee.get(trainee.id);
     const spent = total?._sum.activeSeconds ?? 0;
     const sessions = sessionsByTrainee.get(trainee.id) ?? [];
+    const practicedStations = practicedByTrainee.get(trainee.id) ?? [];
     return {
       id: trainee.id,
       name: `${trainee.firstName} ${trainee.lastName}`.trim(),
@@ -171,6 +188,9 @@ export async function practiceLog() {
       spentSeconds: spent,
       remainingSeconds: Math.max(0, PRACTICE_BUDGET_SECONDS - spent),
       sessionCount: total?._count._all ?? 0,
+      practicedCount: practicedStations.length,
+      stationTotal,
+      practicedStations,
       lastActiveAt: total?._max.lastBeatAt ?? null,
       inPlayground: sessions.some((session) => session.endedAt == null),
       sessions: sessions.map((session) => ({
@@ -183,12 +203,15 @@ export async function practiceLog() {
     };
   });
   const spentSeconds = rows.reduce((sum, row) => sum + row.spentSeconds, 0);
+  const practicedMarks = rows.reduce((sum, row) => sum + row.practicedCount, 0);
   return {
     budgetSeconds: PRACTICE_BUDGET_SECONDS,
     programHours: 200,
     practiceHours: 60,
     traineeCount: rows.length,
     inPlayground: rows.filter((row) => row.inPlayground).length,
+    stationTotal,
+    practicedMarks,
     spentSeconds,
     trainees: rows,
   };

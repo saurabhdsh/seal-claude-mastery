@@ -97,10 +97,7 @@ export async function buildTraineesExcel() {
 
 export async function buildPracticeLogExcel() {
   const log = await practiceLog();
-  const [workspaces, sessions, profiles] = await Promise.all([
-    prisma.playgroundWorkspace.findMany({
-      select: { traineeId: true, state: true, updatedAt: true },
-    }),
+  const [sessions, profiles] = await Promise.all([
     prisma.playgroundSession.findMany({
       orderBy: [{ traineeId: "asc" }, { startedAt: "asc" }],
       include: {
@@ -119,11 +116,6 @@ export async function buildPracticeLogExcel() {
     }),
   ]);
 
-  const completedByTrainee = new Map<string, string[]>();
-  for (const row of workspaces) {
-    const state = (row.state ?? {}) as { completed?: string[] };
-    completedByTrainee.set(row.traineeId, state.completed ?? []);
-  }
   const usernameByTrainee = new Map(
     profiles.map((p) => [p.id, usernameFromEmail(p.user.email)]),
   );
@@ -142,13 +134,13 @@ export async function buildPracticeLogExcel() {
     { header: "Remaining hours", width: 14 },
     { header: "Budget hours", width: 12 },
     { header: "Session count", width: 14 },
-    { header: "Stations practiced", width: 16 },
+    { header: "Mark practiced", width: 14 },
+    { header: "Stations total", width: 14 },
     { header: "Practiced station codes", width: 48 },
     { header: "In playground now", width: 16 },
     { header: "Last active", width: 22 },
   ];
   for (const trainee of log.trainees) {
-    const completed = completedByTrainee.get(trainee.id) ?? [];
     summary.addRow([
       trainee.name,
       usernameByTrainee.get(trainee.id) ?? trainee.employeeId,
@@ -159,8 +151,9 @@ export async function buildPracticeLogExcel() {
       hoursFromSeconds(trainee.remainingSeconds),
       hoursFromSeconds(PRACTICE_BUDGET_SECONDS),
       trainee.sessionCount,
-      completed.length,
-      completed.join(", "),
+      trainee.practicedCount,
+      trainee.stationTotal,
+      trainee.practicedStations.join(", "),
       trainee.inPlayground ? "Yes" : "No",
       trainee.lastActiveAt ? new Date(trainee.lastActiveAt).toLocaleString() : "",
     ]);
@@ -208,6 +201,8 @@ export async function buildPracticeLogExcel() {
     ["Budget seconds", log.budgetSeconds],
     ["Trainee count", log.traineeCount],
     ["In playground now", log.inPlayground],
+    ["Stations per trainee", log.stationTotal],
+    ["Mark practiced (cohort total)", log.practicedMarks],
     ["Cohort spent (HH:MM:SS)", formatClock(log.spentSeconds)],
     ["Cohort spent hours", hoursFromSeconds(log.spentSeconds)],
     ["Exported at", new Date().toLocaleString()],
