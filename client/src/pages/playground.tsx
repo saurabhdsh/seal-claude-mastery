@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getToken } from "../lib/api";
 import { useAuth } from "../stores/auth";
 import { Button, ErrorState, LevelBadge, Skeleton } from "../components/ui";
-import { DRILL_HELP, DRILLS, checksFor, helpFor, starterFor, studioFor, type Studio } from "../playground/studio";
+import { DRILL_HELP, DRILLS, checksFor, helpFor, passesStudio, starterFor, studioFor, type Studio } from "../playground/studio";
 
 type ModuleRow = {
   id: string;
@@ -163,7 +163,14 @@ export function PlaygroundPage() {
   useEffect(() => {
     if (!work.data || !catalog.data || hydrated) return;
     const savedDrafts = { ...(work.data.drafts ?? {}) };
-    const savedCompleted = work.data.completed ?? [];
+    const modulesByCode = new Map(catalog.data.modules.map((m) => [m.code, m]));
+    const savedCompleted = (work.data.completed ?? []).filter((id) => {
+      if (id.startsWith("drill-")) return true;
+      const mod = modulesByCode.get(id);
+      const draft = savedDrafts[id];
+      if (!mod || !draft) return false;
+      return passesStudio(studioFor(mod.code, mod.level), draft, mod.objectives ?? []);
+    });
     setDrafts(savedDrafts);
     setCompleted(savedCompleted);
     setHydrated(true);
@@ -174,6 +181,22 @@ export function PlaygroundPage() {
       api("/api/playground/work", { method: "PUT", body: JSON.stringify(body) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["playground-work"] }),
   });
+
+  useEffect(() => {
+    if (!hydrated || !catalog.data) return;
+    const modulesByCode = new Map(catalog.data.modules.map((m) => [m.code, m]));
+    setCompleted((prev) => {
+      const next = prev.filter((id) => {
+        if (id.startsWith("drill-")) return true;
+        const mod = modulesByCode.get(id);
+        const draft = drafts[id];
+        if (!mod || draft === undefined) return false;
+        return passesStudio(studioFor(mod.code, mod.level), draft, mod.objectives ?? []);
+      });
+      if (next.length === prev.length && next.every((id, i) => id === prev[i])) return prev;
+      return next;
+    });
+  }, [drafts, catalog.data, hydrated]);
 
   useEffect(() => {
     if (!hydrated) return;

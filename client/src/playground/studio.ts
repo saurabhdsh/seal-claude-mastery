@@ -36,42 +36,61 @@ export function studioFor(code: string, level: string): Studio {
   return "prompt";
 }
 
-export function starterFor(studio: Studio, name: string) {
+export function starterFor(studio: Studio, _name: string) {
   if (studio === "prompt") {
     return `Role:
 
 Limits:
 
-Answer shape:`;
+Answer shape:
+
+Safety:
+
+Topic coverage:`;
   }
   if (studio === "agent") {
-    return `${name}
+    return `Tools:
 
-Actions this agent may take:
+Permissions:
 
-Who must approve a write:
+Human gate:
 
-What gets recorded:`;
+Trace / budget:
+
+Topic coverage:`;
   }
   if (studio === "schema") {
     return `{
-  "name": "${name}"
+  "name": "",
+  "description": "",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+    },
+    "required": []
+  }
 }`;
   }
   if (studio === "code") {
-    return `// ${name}
-// write decide(call) here
+    return `// Write decide(call) so unapproved writes are denied and plain reads are allowed.
+function decide(call) {
+}
 `;
   }
-  return `${name}
+  return `## Architecture
 
-Structure:
 
-Risk:
+## Security
 
-Who approves a change:
 
-How you will grade the result:`;
+## Human review
+
+
+## Evaluation
+
+
+## Topic coverage
+`;
 }
 
 export type SectionHelp = {
@@ -82,62 +101,65 @@ export type SectionHelp = {
 export function helpFor(studio: Studio, name: string): SectionHelp {
   if (studio === "prompt") {
     return {
-      task: `Write the prompt you would give Claude for ${name}.`,
+      task: `Write a real prompt you would give Claude for ${name}. Short filler will not pass.`,
       steps: [
-        "Start with a role, such as “You are…”.",
-        "Set a limit: what it may use, and what it must refuse when evidence is missing.",
-        "Say what the answer must look like, such as “Return:” followed by a numbered list.",
-        "Keep safety instructions in force. “Do not ignore safety instructions” is fine. Telling the model to ignore previous instructions, or to always answer, is not.",
+        "Role: write “You are …” followed by a clear job description of at least a few words.",
+        "Limits: say which sources it may use, and that it must refuse when evidence is missing.",
+        "Answer shape: write “Return:” and at least two numbered lines (1. 2.).",
+        "Safety: say that safety instructions stay in force, and do not tell the model to ignore previous instructions.",
+        "Topic coverage: use the important words from each objective listed under This section practices.",
         "When every checklist line is filled, click Mark practiced.",
       ],
     };
   }
   if (studio === "agent") {
     return {
-      task: `Describe the agent you would run for ${name}.`,
+      task: `Describe a real agent design for ${name}. Naming one word is not enough.`,
       steps: [
-        "Name at least one tool.",
-        "Bound permission: a read can be allow-read, and a write needs approval.",
-        "Keep a human on anything that changes a real system.",
-        "Record a trace or a token budget.",
-        "“No unrestricted credentials” is fine. Do not give the agent skip-permissions or a shared login.",
+        "Name at least two concrete tools, such as read_policy and update_case.",
+        "Say which reads are allow-read and that writes need approval.",
+        "Keep a human gate on material writes.",
+        "Set a numeric token budget and say that tool calls are traced.",
+        "Do not give skip-permissions or a shared login.",
+        "Topic coverage: use the important words from each objective listed under This section practices.",
         "When every checklist line is filled, click Mark practiced.",
       ],
     };
   }
   if (studio === "schema") {
     return {
-      task: `Write the tool contract Claude would call for ${name}.`,
+      task: `Write a complete tool schema for ${name}.`,
       steps: [
-        "Keep the text as valid JSON.",
-        "Give the tool a name and a description.",
-        "Declare input_schema.properties for each field.",
-        "List the fields that must be present under required.",
-        "Do not put a * anywhere in the JSON.",
+        "Keep valid JSON with a short tool name and a description of at least one full sentence.",
+        "Declare at least two fields under input_schema.properties.",
+        "Put those field names in required.",
+        "Do not use * anywhere.",
         "When every checklist line is filled, click Mark practiced.",
       ],
     };
   }
   if (studio === "code") {
     return {
-      task: `Write the permission check for ${name}.`,
+      task: `Write a working decide(call) for ${name}.`,
       steps: [
-        "Keep a function named decide(call).",
-        "Return \"deny\" when the tool is update_case and approval is missing.",
-        "Return \"allow\" when the tool is read_policy.",
+        "Define function decide(call).",
+        "Return \"deny\" when tool is update_case and approval is missing.",
+        "Return \"allow\" when tool is read_policy.",
+        "Return \"deny\" for anything else.",
         "Do not add skip-permissions, rm -rf, or child_process.",
         "When every checklist line is filled, click Mark practiced.",
       ],
     };
   }
   return {
-    task: `Write the design for ${name}. This is the capstone-style station.`,
+    task: `Write a full design for ${name}. Empty headings will not pass.`,
     steps: [
-      "Keep a heading for Architecture, Security, Human review, and Evaluation.",
-      "In Security, treat uploaded files as untrusted.",
-      "In Human review, a person approves anything that changes a real system.",
-      "In Evaluation, name a rubric or a golden set.",
-      "The checklist also lists this module’s objectives. Use the longer words from each of those lines in your writeup.",
+      "Keep markdown headings for Architecture, Security, Human review, and Evaluation.",
+      "Put at least two full sentences under each of those headings.",
+      "Security must treat files as untrusted.",
+      "Human review must require a person before material writes.",
+      "Evaluation must name a rubric or a golden set.",
+      "Topic coverage: use the important words from each objective listed under This section practices.",
       "When every checklist line is filled, click Mark practiced.",
     ],
   };
@@ -158,9 +180,49 @@ function has(text: string, pattern: RegExp) {
   return pattern.test(text);
 }
 
-/** "Do not ignore safety" is a limit, not a jailbreak. Strip those phrases before the check. */
+function words(text: string) {
+  return text.trim().split(/\s+/).filter(Boolean);
+}
+
+function substantiveWords(text: string) {
+  return words(text).filter((w) => w.replace(/[^a-z0-9]/gi, "").length >= 3);
+}
+
+function objectiveKeywords(objective: string) {
+  const stop = new Set([
+    "about", "after", "against", "between", "without", "within", "using", "their", "there",
+    "these", "those", "where", "which", "while", "would", "should", "could", "other",
+    "through", "before", "under", "over", "into", "from", "with", "that", "this", "than",
+    "then", "them", "they", "have", "been", "being", "were", "when", "what", "your",
+  ]);
+  return objective
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 5 && !stop.has(w))
+    .slice(0, 4);
+}
+
+function coversObjective(text: string, objective: string) {
+  const keys = objectiveKeywords(objective);
+  if (keys.length === 0) return false;
+  const lower = text.toLowerCase();
+  const hits = keys.filter((w) => lower.includes(w)).length;
+  return hits >= Math.min(2, keys.length);
+}
+
+function objectiveChecks(text: string, objectives: string[]): Check[] {
+  return objectives.slice(0, 3).map((objective, i) => ({
+    id: `obj-${i}`,
+    label: `Covers: ${objective}`,
+    ok: coversObjective(text, objective),
+  }));
+}
+
+/** "Do not ignore safety" is a limit, not a jailbreak. */
 function withoutNegatedSafety(text: string) {
-  return text.replace(/\b(?:do not|don't|never|no)\s+ignore\s+safety\b/gi, "");
+  return text
+    .replace(/\b(?:do not|don't|never|no)\s+ignore\s+safety(?:\s+instructions?)?\b/gi, "")
+    .replace(/\bkeep every safety instruction(?:s)? in force\b/gi, "");
 }
 
 function withoutNegatedRisk(text: string) {
@@ -171,64 +233,168 @@ function withoutNegatedRisk(text: string) {
     .replace(/\b(?:do not|don't|never)\s+share(?:d)?\s+credentials\b/gi, "");
 }
 
+function promptRoleOk(text: string) {
+  for (const line of text.split(/\n/)) {
+    const m = line.match(/\b(?:you are|act as)\s+(.+)$/i);
+    if (!m) continue;
+    const rest = m[1].trim();
+    if (!rest || /^(role|limits?|answer|safety|topic)\b/i.test(rest)) continue;
+    if (substantiveWords(rest).length >= 4) return true;
+  }
+  return false;
+}
+
+function promptLimitOk(text: string) {
+  const sourceBound = has(text, /\b(?:use only|only (?:the )?sources?|from (?:the )?sources?|authorized sources?|provided sources?)\b/i);
+  const refuseMissing = has(
+    text,
+    /\b(?:if (?:evidence|sources?|information) (?:is |are )?missing|when evidence is missing|refuse(?:s)? when|must refuse|say so if)\b/i,
+  );
+  return sourceBound && refuseMissing;
+}
+
+function promptOutputOk(text: string) {
+  if (!has(text, /\breturn\s*:/i)) return false;
+  const numbered = text.match(/(?:^|\n)\s*1\.\s+\S[\s\S]*?(?:^|\n)\s*2\.\s+\S/m);
+  return !!numbered;
+}
+
+function promptSafetyOk(text: string) {
+  const affirms = has(
+    text,
+    /\b(?:keep every safety instruction|safety instructions? (?:stay|remain|in force)|do not improvise policy|leave safety instructions intact)\b/i,
+  );
+  const jailbreak = has(withoutNegatedSafety(text), /\bignore (?:previous|all|safety)\b|\balways answer\b/i);
+  return affirms && !jailbreak;
+}
+
+function agentToolsOk(text: string) {
+  const named = text.match(/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/gi) ?? [];
+  const unique = [...new Set(named.map((t) => t.toLowerCase()))];
+  return unique.length >= 2 && has(text, /\btools?\b/i);
+}
+
+function agentPrivOk(text: string) {
+  const readBound = has(text, /\ballow[- ]?read\b|\bread[- ]?only\b|\bleast privilege\b/i);
+  const writeBound = has(text, /\b(?:requires?|needs?|with)\s+(?:human\s+)?approval\b|\bapproval (?:required|needed)\b/i);
+  return readBound && writeBound;
+}
+
+function sectionBody(text: string, heading: string) {
+  const re = new RegExp(`##\\s*${heading}\\b([\\s\\S]*?)(?=\\n##\\s|$)`, "i");
+  const m = text.match(re);
+  if (!m) return "";
+  return m[1].trim();
+}
+
+function sectionOk(text: string, heading: string, minWords = 12) {
+  return substantiveWords(sectionBody(text, heading)).length >= minWords;
+}
+
 export function checksFor(studio: Studio, text: string, objectives: string[]): Check[] {
+  const body = text.trim();
+  const rich = substantiveWords(body).length >= 28 && body.length >= 160;
+
   if (studio === "prompt") {
     return [
-      { id: "role", label: "Names a role", ok: has(text, /you are|act as/i) },
-      { id: "limit", label: "Sets a limit or a refusal", ok: has(text, /do not|never|only|if .* missing|refuse/i) },
-      { id: "output", label: "States the output shape", ok: has(text, /return|format|json|1\.|sections/i) },
-      { id: "safety", label: "Leaves safety instructions intact", ok: text.trim().length > 40 && !has(withoutNegatedSafety(text), /ignore (previous|all|safety)|always answer/i) },
+      { id: "length", label: "Writes a full prompt, not a few words", ok: rich },
+      { id: "role", label: "Names a real role after “You are…”", ok: promptRoleOk(body) },
+      { id: "limit", label: "Bounds sources and refuses when evidence is missing", ok: promptLimitOk(body) },
+      { id: "output", label: "Uses “Return:” with at least two numbered lines", ok: promptOutputOk(body) },
+      { id: "safety", label: "Keeps safety instructions in force", ok: promptSafetyOk(body) },
+      ...objectiveChecks(body, objectives),
     ];
   }
+
   if (studio === "agent") {
     return [
-      { id: "tool", label: "Names at least one tool", ok: has(text, /tool/i) },
-      { id: "priv", label: "Bounds permission", ok: has(text, /permission|least privilege|allow-read|approval/i) },
-      { id: "human", label: "Keeps a human on material actions", ok: has(text, /human|approval|hitl/i) },
-      { id: "trace", label: "Records a trace or a budget", ok: has(text, /trace|log|budget|token/i) },
-      { id: "safe", label: "Avoids an unrestricted agent", ok: text.trim().length > 40 && !has(withoutNegatedRisk(text), /unrestricted|dangerously-skip-permissions|shared credentials/i) },
+      { id: "length", label: "Writes a full agent brief, not a few words", ok: rich },
+      { id: "tool", label: "Names at least two concrete tools", ok: agentToolsOk(body) },
+      { id: "priv", label: "Bounds reads and requires approval on writes", ok: agentPrivOk(body) },
+      { id: "human", label: "Keeps a human on material actions", ok: has(body, /\bhuman\b/i) && has(body, /\bapprov/i) },
+      {
+        id: "trace",
+        label: "Sets a numeric token budget and a trace",
+        ok: has(body, /\b(?:token )?budget\b[^.\n]{0,40}\d|\b\d{2,6}\s*(?:k\s*)?tokens?\b/i) && has(body, /\btrace\b/i),
+      },
+      {
+        id: "safe",
+        label: "Avoids an unrestricted or shared-login agent",
+        ok: rich && !has(withoutNegatedRisk(body), /\bunrestricted\b|\bdangerously-skip-permissions\b|\bshared credentials\b/i),
+      },
+      ...objectiveChecks(body, objectives),
     ];
   }
+
   if (studio === "schema") {
     let parsed: any = null;
     try {
-      parsed = JSON.parse(text);
+      parsed = JSON.parse(body);
     } catch {
       parsed = null;
     }
+    const props = parsed?.input_schema?.properties;
+    const propKeys = props && typeof props === "object" ? Object.keys(props) : [];
     const required = parsed?.input_schema?.required ?? parsed?.required;
+    const requiredOk =
+      Array.isArray(required) &&
+      required.length >= 1 &&
+      required.every((key: unknown) => typeof key === "string" && propKeys.includes(key));
+    const description = typeof parsed?.description === "string" ? parsed.description.trim() : "";
+    const name = typeof parsed?.name === "string" ? parsed.name.trim() : "";
     return [
-      { id: "json", label: "Valid JSON", ok: !!parsed && typeof parsed === "object" },
-      { id: "name", label: "Has a tool name and description", ok: typeof parsed?.name === "string" && typeof parsed?.description === "string" },
-      { id: "schema", label: "Declares an input schema", ok: !!parsed?.input_schema?.properties },
-      { id: "required", label: "Marks required fields", ok: Array.isArray(required) && required.length > 0 },
+      { id: "json", label: "Valid JSON object", ok: !!parsed && typeof parsed === "object" && !Array.isArray(parsed) },
+      {
+        id: "name",
+        label: "Has a short tool name and a full description",
+        ok: /^[a-z][a-z0-9_]{2,40}$/i.test(name) && substantiveWords(description).length >= 8,
+      },
+      { id: "schema", label: "Declares at least two input fields", ok: propKeys.length >= 2 },
+      { id: "required", label: "Marks required fields that exist on the schema", ok: requiredOk },
       { id: "tight", label: "Does not use a wildcard tool", ok: !!parsed && !JSON.stringify(parsed).includes("*") },
     ];
   }
+
   if (studio === "code") {
-    const run = runDecide(text);
+    const run = runDecide(body);
     return [
-      { id: "fn", label: "Defines decide(call)", ok: has(text, /function\s+decide\s*\(/) },
+      { id: "fn", label: "Defines decide(call)", ok: has(body, /function\s+decide\s*\(\s*call\s*\)/) },
       { id: "deny", label: "Denies an unapproved write", ok: run.denyWrite },
       { id: "read", label: "Allows a plain read", ok: run.allowRead },
-      { id: "safe", label: "No destructive or skip-permission calls", ok: !has(text, /dangerously-skip-permissions|rm\s+-rf|child_process/) },
+      { id: "default", label: "Denies unknown tools by default", ok: run.denyUnknown },
+      {
+        id: "safe",
+        label: "No destructive or skip-permission calls",
+        ok: body.length >= 80 && !has(body, /dangerously-skip-permissions|rm\s+-rf|child_process/),
+      },
     ];
   }
-  const objectiveChecks = objectives.slice(0, 3).map((objective, i) => {
-    const words = objective.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 5).slice(0, 3);
-    return {
-      id: `obj-${i}`,
-      label: objective,
-      ok: words.length > 0 && words.every((w) => text.toLowerCase().includes(w)),
-    };
-  });
+
   return [
-    { id: "arch", label: "Architecture", ok: has(text, /architecture/i) },
-    { id: "sec", label: "Security or untrusted input", ok: has(text, /security|untrusted|injection/i) },
-    { id: "human", label: "Human review", ok: has(text, /human review|human gate|approval/i) },
-    { id: "eval", label: "Evaluation", ok: has(text, /eval|rubric|golden/i) },
-    ...objectiveChecks,
+    { id: "length", label: "Writes a full design, not empty headings", ok: substantiveWords(body).length >= 60 && body.length >= 320 },
+    { id: "arch", label: "Architecture section with real content", ok: sectionOk(body, "Architecture") },
+    {
+      id: "sec",
+      label: "Security section treats input as untrusted",
+      ok: sectionOk(body, "Security") && has(sectionBody(body, "Security"), /\buntrusted\b|\binjection\b/i),
+    },
+    {
+      id: "human",
+      label: "Human review section requires approval",
+      ok: sectionOk(body, "Human review") && has(sectionBody(body, "Human review"), /\bapprov|\bhuman\b/i),
+    },
+    {
+      id: "eval",
+      label: "Evaluation section names a rubric or golden set",
+      ok: sectionOk(body, "Evaluation") && has(sectionBody(body, "Evaluation"), /\brubric\b|\bgolden\b/i),
+    },
+    ...objectiveChecks(body, objectives),
   ];
+}
+
+export function passesStudio(studio: Studio, text: string, objectives: string[]) {
+  const checks = checksFor(studio, text, objectives);
+  return checks.length > 0 && checks.every((c) => c.ok);
 }
 
 function runDecide(source: string) {
@@ -240,9 +406,10 @@ function runDecide(source: string) {
     return {
       denyWrite: fn({ tool: "update_case", approval: false }) === "deny",
       allowRead: fn({ tool: "read_policy" }) === "allow",
+      denyUnknown: fn({ tool: "delete_everything" }) === "deny",
     };
   } catch {
-    return { denyWrite: false, allowRead: false };
+    return { denyWrite: false, allowRead: false, denyUnknown: false };
   }
 }
 
