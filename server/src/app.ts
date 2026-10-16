@@ -24,10 +24,23 @@ export function createApp() {
   app.use(express.json({ limit: "2mb" }));
   app.use(cookieParser() as unknown as express.RequestHandler);
 
-  const authLimit = rateLimit({ windowMs: 15 * 60 * 1000, max: 40, standardHeaders: true });
-  const apiLimit = rateLimit({ windowMs: 60 * 1000, max: 240, standardHeaders: true });
+  // Login only: keep abuse control, but allow a cohort behind one office IP.
+  const loginLimit = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 300,
+    standardHeaders: true,
+    message: { error: "Too many sign-in attempts from this network. Wait a few minutes, then try again.", code: "RATE_LIMIT" },
+  });
+  const authLimit = rateLimit({
+    windowMs: 60 * 1000,
+    max: 600,
+    standardHeaders: true,
+    message: { error: "Too many auth requests. Wait a moment, then try again.", code: "RATE_LIMIT" },
+  });
+  const apiLimit = rateLimit({ windowMs: 60 * 1000, max: 600, standardHeaders: true });
 
   app.get("/api/health", (_req, res) => res.json({ ok: true, name: "SEAL", time: new Date().toISOString() }));
+  app.use("/api/auth/login", loginLimit as unknown as express.RequestHandler);
   app.use("/api/auth", authLimit as unknown as express.RequestHandler, authRouter);
   app.use("/api/admin", apiLimit as unknown as express.RequestHandler, adminRouter);
   app.use("/api/assessment", apiLimit as unknown as express.RequestHandler, assessmentRouter);
