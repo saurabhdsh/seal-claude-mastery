@@ -114,14 +114,35 @@ function PracticeClock() {
   );
 }
 
-function WhatToDo({ task, steps, objectives }: { task: string; steps: string[]; objectives?: string[] }) {
+function WhatToDo({
+  situation,
+  task,
+  tip,
+  steps,
+  objectives,
+}: {
+  situation?: string;
+  task: string;
+  tip?: string;
+  steps: string[];
+  objectives?: string[];
+}) {
   return (
-    <section className="rounded-2xl border border-[#0071e3]/20 bg-[#f4f8fd] px-4 py-4">
-      <div className="text-[11px] uppercase tracking-[0.16em] text-[#0071e3]">What to do</div>
-      <p className="mt-2 text-sm leading-6">{task}</p>
+    <section className="space-y-4 rounded-2xl border border-[#0071e3]/20 bg-[#f4f8fd] px-4 py-4">
+      {situation && (
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.16em] text-[#0071e3]">Situation</div>
+          <p className="mt-2 text-sm leading-6">{situation}</p>
+        </div>
+      )}
+      <div>
+        <div className="text-[11px] uppercase tracking-[0.16em] text-[#0071e3]">Your job</div>
+        <p className="mt-2 text-sm font-medium leading-6">{task}</p>
+        {tip && <p className="mt-2 text-sm leading-6 text-[var(--ink-muted)]">Tip: {tip}</p>}
+      </div>
       {objectives && objectives.length > 0 && (
-        <div className="mt-3">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">This section practices</div>
+        <div>
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Skills this proves</div>
           <ul className="mt-1 list-disc space-y-1 pl-5 text-sm leading-6">
             {objectives.map((objective) => (
               <li key={objective}>{objective}</li>
@@ -129,11 +150,14 @@ function WhatToDo({ task, steps, objectives }: { task: string; steps: string[]; 
           </ul>
         </div>
       )}
-      <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm leading-6">
-        {steps.map((step) => (
-          <li key={step}>{step}</li>
-        ))}
-      </ol>
+      <div>
+        <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">How to pass</div>
+        <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm leading-6">
+          {steps.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+      </div>
     </section>
   );
 }
@@ -210,7 +234,7 @@ export function PlaygroundPage() {
   const studio: Studio = selected ? studioFor(selected.code, selected.level) : "design";
   const savedDraft = drafts[code];
   const text = selected ? (savedDraft === undefined ? starterFor(studio, selected.name) : savedDraft) : "";
-  const help = selected ? helpFor(studio, selected.name) : null;
+  const help = selected ? helpFor(studio, selected.code, selected.name) : null;
   const checks = selected ? checksFor(studio, text, selected.objectives ?? []) : [];
   const ready = checks.length > 0 && checks.every((c) => c.ok);
   const doneCount = completed.length;
@@ -332,7 +356,15 @@ export function PlaygroundPage() {
               </div>
               <h2 className="font-serif text-3xl">{selected.code} · {selected.name}</h2>
               <p className="text-sm leading-7 text-[var(--ink-muted)]">{selected.description}</p>
-              {help && <WhatToDo task={help.task} steps={help.steps} objectives={selected.objectives} />}
+              {help && (
+                <WhatToDo
+                  situation={help.situation}
+                  task={help.task}
+                  tip={help.tip}
+                  steps={help.steps}
+                  objectives={selected.objectives}
+                />
+              )}
               <ul className="grid gap-2 text-sm md:grid-cols-2">
                 {checks.map((c) => (
                   <li key={c.id} className={`rounded-xl border px-3 py-2 ${c.ok ? "border-emerald-500/40 bg-emerald-50" : "border-[var(--line)]"}`}>

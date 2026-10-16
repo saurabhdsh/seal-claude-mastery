@@ -1,3 +1,5 @@
+import { briefFor } from "./briefs";
+
 export type Studio = "prompt" | "agent" | "schema" | "code" | "design";
 
 const STUDIO_BY_CODE: Record<string, Studio> = {
@@ -94,74 +96,73 @@ function decide(call) {
 }
 
 export type SectionHelp = {
+  situation: string;
   task: string;
+  tip: string;
   steps: string[];
 };
 
-export function helpFor(studio: Studio, name: string): SectionHelp {
+function studioSteps(studio: Studio): string[] {
   if (studio === "prompt") {
-    return {
-      task: `Write a real prompt you would give Claude for ${name}. Short filler will not pass.`,
-      steps: [
-        "Role: write “You are …” followed by a clear job description of at least a few words.",
-        "Limits: say which sources it may use, and that it must refuse when evidence is missing.",
-        "Answer shape: write “Return:” and at least two numbered lines (1. 2.).",
-        "Safety: say that safety instructions stay in force, and do not tell the model to ignore previous instructions.",
-        "Topic coverage: use the important words from each objective listed under This section practices.",
-        "When every checklist line is filled, click Mark practiced.",
-      ],
-    };
+    return [
+      "In the box, write the full prompt — not notes about the prompt.",
+      "Start with “You are …” and a real job description.",
+      "Bound sources, and refuse when evidence is missing.",
+      "Add “Return:” with at least two numbered lines.",
+      "Keep safety instructions in force.",
+      "Use the important words from each skill below so the checklist can see the topic.",
+      "When every line is green, click Mark practiced.",
+    ];
   }
   if (studio === "agent") {
-    return {
-      task: `Describe a real agent design for ${name}. Naming one word is not enough.`,
-      steps: [
-        "Name at least two concrete tools, such as read_policy and update_case.",
-        "Say which reads are allow-read and that writes need approval.",
-        "Keep a human gate on material writes.",
-        "Set a numeric token budget and say that tool calls are traced.",
-        "Do not give skip-permissions or a shared login.",
-        "Topic coverage: use the important words from each objective listed under This section practices.",
-        "When every checklist line is filled, click Mark practiced.",
-      ],
-    };
+    return [
+      "Describe the agent for this situation, not a one-line label.",
+      "Name at least two concrete tools (for example read_policy and update_case).",
+      "Mark reads as allow-read and require approval on writes.",
+      "Keep a human on material actions.",
+      "Set a numeric token budget and say tool calls are traced.",
+      "Use the important words from each skill below.",
+      "When every line is green, click Mark practiced.",
+    ];
   }
   if (studio === "schema") {
-    return {
-      task: `Write a complete tool schema for ${name}.`,
-      steps: [
-        "Keep valid JSON with a short tool name and a description of at least one full sentence.",
-        "Declare at least two fields under input_schema.properties.",
-        "Put those field names in required.",
-        "Do not use * anywhere.",
-        "When every checklist line is filled, click Mark practiced.",
-      ],
-    };
+    return [
+      "Write valid JSON for the tool this situation needs.",
+      "Give a short name and a full-sentence description.",
+      "Declare at least two fields under input_schema.properties.",
+      "List those fields under required.",
+      "Do not use * anywhere.",
+      "When every line is green, click Mark practiced.",
+    ];
   }
   if (studio === "code") {
-    return {
-      task: `Write a working decide(call) for ${name}.`,
-      steps: [
-        "Define function decide(call).",
-        "Return \"deny\" when tool is update_case and approval is missing.",
-        "Return \"allow\" when tool is read_policy.",
-        "Return \"deny\" for anything else.",
-        "Do not add skip-permissions, rm -rf, or child_process.",
-        "When every checklist line is filled, click Mark practiced.",
-      ],
-    };
+    return [
+      "Implement function decide(call) for this operating rule.",
+      "Return \"deny\" when update_case has no approval.",
+      "Return \"allow\" for read_policy.",
+      "Return \"deny\" for anything else.",
+      "Do not add skip-permissions, rm -rf, or child_process.",
+      "When every line is green, click Mark practiced.",
+    ];
   }
+  return [
+    "Write a full design under ## Architecture, ## Security, ## Human review, and ## Evaluation.",
+    "Put real sentences under each heading — empty headings fail.",
+    "Security must treat files as untrusted.",
+    "Human review must require approval before material writes.",
+    "Evaluation must name a rubric or golden set.",
+    "Use the important words from each skill below.",
+    "When every line is green, click Mark practiced.",
+  ];
+}
+
+export function helpFor(studio: Studio, code: string, name: string): SectionHelp {
+  const brief = briefFor(code, name);
   return {
-    task: `Write a full design for ${name}. Empty headings will not pass.`,
-    steps: [
-      "Keep markdown headings for Architecture, Security, Human review, and Evaluation.",
-      "Put at least two full sentences under each of those headings.",
-      "Security must treat files as untrusted.",
-      "Human review must require a person before material writes.",
-      "Evaluation must name a rubric or a golden set.",
-      "Topic coverage: use the important words from each objective listed under This section practices.",
-      "When every checklist line is filled, click Mark practiced.",
-    ],
+    situation: brief.situation,
+    task: brief.job,
+    tip: brief.tip,
+    steps: studioSteps(studio),
   };
 }
 
