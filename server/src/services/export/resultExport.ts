@@ -402,7 +402,6 @@ export async function buildResultsListExcel() {
       },
     },
     orderBy: { createdAt: "desc" },
-    take: 500,
   });
 
   const wb = new ExcelJS.Workbook();

@@ -421,7 +421,9 @@ adminRouter.patch(
 
 adminRouter.post("/trainees/:id/reset-password", requirePermission("admin.trainees.write"), async (req, res, next) => {
   try {
-    if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can reset a trainee password");
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.ADMIN) {
+      throw forbidden("Only an admin can reset a trainee password");
+    }
     const password = String(req.body.password ?? "");
     assertPassword(password);
     const t = await prisma.traineeProfile.findUnique({ where: { id: req.params.id } });
@@ -1064,7 +1066,6 @@ adminRouter.get("/results", requirePermission("admin.results.read"), async (req,
         },
       },
       orderBy: { createdAt: "desc" },
-      take: 100,
     });
     res.json(rows);
   } catch (e) {
@@ -1205,7 +1206,9 @@ adminRouter.patch("/ai/settings", requirePermission("admin.config"), async (req,
 
 adminRouter.get("/playground/practice", requirePermission("admin.dashboard"), async (req, res, next) => {
   try {
-    if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can view practice logs");
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.ADMIN) {
+      throw forbidden("Only an admin can view practice logs");
+    }
     res.json(await practiceLog());
   } catch (e) {
     next(e);
@@ -1214,7 +1217,9 @@ adminRouter.get("/playground/practice", requirePermission("admin.dashboard"), as
 
 adminRouter.get("/playground/practice/export.xlsx", requirePermission("admin.dashboard"), async (req, res, next) => {
   try {
-    if (req.user!.role !== Role.SUPER_ADMIN) throw forbidden("Only a super admin can export practice logs");
+    if (req.user!.role !== Role.SUPER_ADMIN && req.user!.role !== Role.ADMIN) {
+      throw forbidden("Only an admin can export practice logs");
+    }
     const file = await buildPracticeLogExcel();
     res.setHeader("Content-Type", file.contentType);
     res.setHeader("Content-Disposition", `attachment; filename="${file.filename}"`);
@@ -1420,6 +1425,9 @@ adminRouter.delete("/users/:id", requirePermission("admin.config"), async (req, 
     const user = await prisma.user.findUnique({ where: { id: req.params.id } });
     if (!user) throw notFound("User not found");
     if (user.role === Role.TRAINEE) throw badRequest("Use DELETE /trainees/:id to remove trainees");
+    if (user.role === Role.SUPER_ADMIN && req.user!.role !== Role.SUPER_ADMIN) {
+      throw forbidden("An admin cannot delete a super admin");
+    }
     await prisma.user.delete({ where: { id: req.params.id } });
     await audit({
       actorId: req.user!.id,
@@ -1430,6 +1438,34 @@ adminRouter.delete("/users/:id", requirePermission("admin.config"), async (req, 
       req,
     });
     res.json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+adminRouter.post("/users/:id/reset-password", requirePermission("admin.config"), async (req, res, next) => {
+  try {
+    const password = String(req.body.password ?? "");
+    assertPassword(password);
+    const user = await prisma.user.findUnique({ where: { id: req.params.id } });
+    if (!user) throw notFound("User not found");
+    if (user.role === Role.TRAINEE) throw badRequest("Use the trainee reset to change a trainee password");
+    if (user.role === Role.SUPER_ADMIN && req.user!.role !== Role.SUPER_ADMIN) {
+      throw forbidden("An admin cannot reset a super admin password");
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hashPassword(password), passwordChangedAt: new Date(), failedLoginAttempts: 0, lockedUntil: null },
+    });
+    await audit({
+      actorId: req.user!.id,
+      action: "user.password_reset",
+      resourceType: "User",
+      resourceId: user.id,
+      after: { email: user.email, role: user.role },
+      req,
+    });
+    res.json({ ok: true, temporaryPassword: password });
   } catch (e) {
     next(e);
   }

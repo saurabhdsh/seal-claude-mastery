@@ -16,7 +16,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useAuth } from "../stores/auth";
 
 export function DashboardPage() {
@@ -474,13 +474,13 @@ export function TraineeDetailPage() {
             </option>
           ))}
         </select>
-        {user?.role === "SUPER_ADMIN" && (
+        {(user?.role === "SUPER_ADMIN" || user?.role === "ADMIN") && (
           <Button variant="soft" onClick={() => { setResetOpen((v) => !v); setIssuedPassword(null); }}>
             Reset password
           </Button>
         )}
       </div>
-      {user?.role === "SUPER_ADMIN" && resetOpen && (
+      {(user?.role === "SUPER_ADMIN" || user?.role === "ADMIN") && resetOpen && (
         <div className="max-w-md space-y-3 rounded-2xl border border-[var(--line)] bg-white p-4">
           <p className="text-sm text-[var(--ink-muted)]">
             Set a new temporary password. The current password cannot be shown. Copy this new one before you leave the page.
@@ -1933,7 +1933,12 @@ export function UsersPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [resetFor, setResetFor] = useState<string | null>(null);
+  const [newPassword, setNewPassword] = useState("");
+  const [issuedPassword, setIssuedPassword] = useState<string | null>(null);
   const q = useQuery({ queryKey: ["staff-users"], queryFn: () => api<any[]>("/api/admin/users") });
+
+  const canManage = (role: string) => me?.role === "SUPER_ADMIN" || role !== "SUPER_ADMIN";
 
   const del = useMutation({
     mutationFn: (id: string) => api(`/api/admin/users/${id}`, { method: "DELETE" }),
@@ -1942,19 +1947,40 @@ export function UsersPage() {
       setDeleting(null);
     },
   });
+  const resetPassword = useMutation({
+    mutationFn: (id: string) =>
+      api<{ ok: boolean; temporaryPassword: string }>(`/api/admin/users/${id}/reset-password`, {
+        method: "POST",
+        body: JSON.stringify({ password: newPassword }),
+      }),
+    onSuccess: (data) => {
+      setIssuedPassword(data.temporaryPassword);
+      setNewPassword("");
+      setResetFor(null);
+    },
+  });
 
   return (
     <div className="space-y-6">
       <div className="flex items-end justify-between">
         <div>
           <h1 className="font-serif text-4xl">Users</h1>
-          <p className="mt-1 text-sm text-[var(--ink-muted)]">Staff accounts with admin access. Trainees are managed separately.</p>
+          <p className="mt-1 text-sm text-[var(--ink-muted)]">Staff accounts with admin access. Trainees are managed separately. Admins cannot delete or reset a super admin.</p>
         </div>
         <Button onClick={() => setOpen(true)}>Create user</Button>
       </div>
 
       {q.isLoading && <Skeleton className="h-40" />}
       {q.error && <ErrorState error={q.error} />}
+      {del.error && <ErrorState error={del.error} />}
+      {resetPassword.error && <ErrorState error={resetPassword.error} />}
+      {issuedPassword && (
+        <div className="max-w-md rounded-2xl border border-emerald-500/30 bg-emerald-50 p-4 text-sm">
+          <div className="font-medium text-emerald-900">Temporary password set</div>
+          <p className="mt-1 font-mono text-base text-emerald-950">{issuedPassword}</p>
+          <p className="mt-2 text-emerald-800">Share this once. It will not be shown again from the system.</p>
+        </div>
+      )}
       {q.data && (
         <div className="overflow-hidden rounded-2xl border border-[var(--line)]">
           <table className="w-full text-left text-sm">
@@ -1969,49 +1995,83 @@ export function UsersPage() {
               {q.data.map((u: any) => {
                 const username = u.email.endsWith("@seal.local") ? u.email.replace("@seal.local", "") : u.email;
                 const isSelf = u.id === me?.id;
+                const manage = canManage(u.role);
                 return (
-                  <tr key={u.id} className="border-t border-[var(--line)] hover:bg-[var(--bg-muted)]/50">
-                    <td className="px-4 py-3 font-mono">{username}</td>
-                    <td className="px-4 py-3"><RoleBadge role={u.role} /></td>
-                    <td className="px-4 py-3 text-[var(--ink-muted)]">
-                      {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : "Never"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs ${u.isActive ? "text-emerald-400" : "text-[var(--ink-muted)]"}`}>
-                        {u.isActive ? "Active" : "Inactive"}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      {!isSelf && (
-                        deleting === u.id ? (
-                          <div className="flex items-center justify-end gap-2 text-xs">
-                            <span className="text-[var(--ink-muted)]">Delete?</span>
-                            <button
-                              className="rounded px-2 py-0.5 bg-red-500/15 text-red-400 hover:bg-red-500/30"
-                              onClick={() => del.mutate(u.id)}
-                              disabled={del.isPending}
-                            >
-                              Confirm
-                            </button>
-                            <button
-                              className="rounded px-2 py-0.5 text-[var(--ink-muted)] hover:text-[var(--ink)]"
-                              onClick={() => setDeleting(null)}
-                            >
-                              Cancel
-                            </button>
+                  <Fragment key={u.id}>
+                    <tr className="border-t border-[var(--line)] hover:bg-[var(--bg-muted)]/50">
+                      <td className="px-4 py-3 font-mono">{username}</td>
+                      <td className="px-4 py-3"><RoleBadge role={u.role} /></td>
+                      <td className="px-4 py-3 text-[var(--ink-muted)]">
+                        {u.lastLoginAt ? new Date(u.lastLoginAt).toLocaleDateString() : "Never"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className={`text-xs ${u.isActive ? "text-emerald-400" : "text-[var(--ink-muted)]"}`}>
+                          {u.isActive ? "Active" : "Inactive"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        {isSelf && <span className="text-xs text-[var(--ink-muted)]">You</span>}
+                        {!isSelf && !manage && <span className="text-xs text-[var(--ink-muted)]">Protected</span>}
+                        {!isSelf && manage && (
+                          <div className="flex items-center justify-end gap-3 text-xs">
+                            {resetFor === u.id ? null : (
+                              <button
+                                className="text-[var(--ink-muted)] hover:text-coral"
+                                onClick={() => { setResetFor(u.id); setIssuedPassword(null); setNewPassword(""); }}
+                              >
+                                Reset password
+                              </button>
+                            )}
+                            {deleting === u.id ? (
+                              <div className="flex items-center gap-2">
+                                <span className="text-[var(--ink-muted)]">Delete?</span>
+                                <button
+                                  className="rounded px-2 py-0.5 bg-red-500/15 text-red-400 hover:bg-red-500/30"
+                                  onClick={() => del.mutate(u.id)}
+                                  disabled={del.isPending}
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  className="rounded px-2 py-0.5 text-[var(--ink-muted)] hover:text-[var(--ink)]"
+                                  onClick={() => setDeleting(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                className="text-[var(--ink-muted)] hover:text-red-400"
+                                onClick={() => setDeleting(u.id)}
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
-                        ) : (
-                          <button
-                            className="text-xs text-[var(--ink-muted)] hover:text-red-400"
-                            onClick={() => setDeleting(u.id)}
-                          >
-                            Delete
-                          </button>
-                        )
-                      )}
-                      {isSelf && <span className="text-xs text-[var(--ink-muted)]">You</span>}
-                    </td>
-                  </tr>
+                        )}
+                      </td>
+                    </tr>
+                    {resetFor === u.id && (
+                      <tr className="border-t border-[var(--line)] bg-[#fafafa]">
+                        <td colSpan={5} className="px-4 py-3">
+                          <div className="flex max-w-xl flex-wrap items-end gap-2">
+                            <input
+                              type="text"
+                              className={inputClass + " max-w-xs"}
+                              placeholder="New temporary password"
+                              autoComplete="off"
+                              value={newPassword}
+                              onChange={(e) => setNewPassword(e.target.value)}
+                            />
+                            <Button disabled={resetPassword.isPending || !newPassword} onClick={() => resetPassword.mutate(u.id)}>
+                              {resetPassword.isPending ? "Saving…" : "Set password"}
+                            </Button>
+                            <Button variant="ghost" onClick={() => setResetFor(null)}>Cancel</Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 );
               })}
             </tbody>
