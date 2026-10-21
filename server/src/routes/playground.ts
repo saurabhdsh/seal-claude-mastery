@@ -94,7 +94,16 @@ playgroundRouter.put(
     try {
       await assertPlaygroundOpen();
       if (!req.user!.traineeProfileId) throw forbidden();
-      const state = { drafts: req.body.drafts, completed: req.body.completed };
+      const incomingDrafts = req.body.drafts as Record<string, string>;
+      const incomingCompleted = req.body.completed as string[];
+      const existing = await prisma.playgroundWorkspace.findUnique({
+        where: { traineeId: req.user!.traineeProfileId },
+      });
+      const previous = (existing?.state ?? {}) as { drafts?: Record<string, string>; completed?: string[] };
+      // Keep every previously practiced station even if a stale tab saves an older completed list.
+      const completed = [...new Set([...(previous.completed ?? []), ...incomingCompleted])].slice(0, 80);
+      const drafts = { ...(previous.drafts ?? {}), ...incomingDrafts };
+      const state = { drafts, completed };
       const row = await prisma.playgroundWorkspace.upsert({
         where: { traineeId: req.user!.traineeProfileId },
         create: { traineeId: req.user!.traineeProfileId, state },

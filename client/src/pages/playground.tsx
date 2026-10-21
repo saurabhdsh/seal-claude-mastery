@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api, getToken } from "../lib/api";
 import { useAuth } from "../stores/auth";
 import { Button, ErrorState, LevelBadge, Skeleton } from "../components/ui";
-import { DRILL_HELP, DRILLS, checksFor, helpFor, passesStudio, starterFor, studioFor, type Studio } from "../playground/studio";
+import { DRILL_HELP, DRILLS, checksFor, helpFor, starterFor, studioFor, type Studio } from "../playground/studio";
 
 type ModuleRow = {
   id: string;
@@ -183,50 +183,111 @@ export function PlaygroundPage() {
   const [completed, setCompleted] = useState<string[]>([]);
   const [drillPick, setDrillPick] = useState<Record<string, number | null>>({});
   const [hydrated, setHydrated] = useState(false);
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const draftsRef = useRef(drafts);
+  const completedRef = useRef(completed);
+  const saveTimerRef = useRef<number | null>(null);
+  const saveChainRef = useRef(Promise.resolve());
+  const saveEpochRef = useRef(0);
+
+  draftsRef.current = drafts;
+  completedRef.current = completed;
 
   useEffect(() => {
-    if (!work.data || !catalog.data || hydrated) return;
-    const savedDrafts = { ...(work.data.drafts ?? {}) };
-    const modulesByCode = new Map(catalog.data.modules.map((m) => [m.code, m]));
-    const savedCompleted = (work.data.completed ?? []).filter((id) => {
-      if (id.startsWith("drill-")) return true;
-      const mod = modulesByCode.get(id);
-      const draft = savedDrafts[id];
-      if (!mod || !draft) return false;
-      return passesStudio(studioFor(mod.code, mod.level), draft, mod.objectives ?? []);
-    });
-    setDrafts(savedDrafts);
-    setCompleted(savedCompleted);
+    if (!work.data || hydrated) return;
+    setDrafts(work.data.drafts ?? {});
+    setCompleted(work.data.completed ?? []);
     setHydrated(true);
-  }, [work.data, catalog.data, hydrated]);
+    setSaveState("saved");
+  }, [work.data, hydrated]);
 
-  const save = useMutation({
-    mutationFn: (body: { drafts: Record<string, string>; completed: string[] }) =>
-      api("/api/playground/work", { method: "PUT", body: JSON.stringify(body) }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["playground-work"] }),
-  });
+  const persistWork = (opts?: { keepalive?: boolean; immediate?: boolean }) => {
+    const body = {
+      drafts: draftsRef.current,
+      completed: completedRef.current,
+    };
+    qc.setQueryData(["playground-work"], body);
 
-  useEffect(() => {
-    if (!hydrated || !catalog.data) return;
-    const modulesByCode = new Map(catalog.data.modules.map((m) => [m.code, m]));
-    setCompleted((prev) => {
-      const next = prev.filter((id) => {
-        if (id.startsWith("drill-")) return true;
-        const mod = modulesByCode.get(id);
-        const draft = drafts[id];
-        if (!mod || draft === undefined) return false;
-        return passesStudio(studioFor(mod.code, mod.level), draft, mod.objectives ?? []);
+    if (opts?.keepalive) {
+      const token = getToken();
+      const headers = new Headers({ "Content-Type": "application/json" });
+      if (token) headers.set("Authorization", `Bearer ${token}`);
+      void fetch("/api/playground/work", {
+        method: "PUT",
+        keepalive: true,
+        headers,
+        credentials: "include",
+        body: JSON.stringify(body),
       });
-      if (next.length === prev.length && next.every((id, i) => id === prev[i])) return prev;
-      return next;
-    });
-  }, [drafts, catalog.data, hydrated]);
+      return;
+    }
+
+    const epoch = ++saveEpochRef.current;
+    setSaveState("saving");
+    saveChainRef.current = saveChainRef.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (epoch !== saveEpochRef.current && !opts?.immediate) return;
+        try {
+          const saved = await api<{ drafts: Record<string, string>; completed: string[] }>("/api/playground/work", {
+            method: "PUT",
+            body: JSON.stringify({
+              drafts: draftsRef.current,
+              completed: completedRef.current,
+            }),
+          });
+          if (epoch === saveEpochRef.current) {
+            qc.setQueryData(["playground-work"], saved);
+            setSaveState("saved");
+          }
+        } catch {
+          if (epoch === saveEpochRef.current) setSaveState("error");
+        }
+      });
+  };
+
+  const scheduleSave = () => {
+    if (!hydrated) return;
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      persistWork();
+    }, 500);
+  };
+
+  const saveNow = () => {
+    if (saveTimerRef.current) {
+      window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    persistWork({ immediate: true });
+  };
 
   useEffect(() => {
     if (!hydrated) return;
-    const t = window.setTimeout(() => save.mutate({ drafts, completed }), 700);
-    return () => window.clearTimeout(t);
+    scheduleSave();
   }, [drafts, completed, hydrated]);
+
+  useEffect(() => {
+    const flush = () => {
+      if (saveTimerRef.current) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (!hydrated) return;
+      persistWork({ keepalive: true });
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", onVisibility);
+      flush();
+    };
+  }, [hydrated]);
 
   const modules = catalog.data?.modules ?? [];
   const selected = modules.find((m) => m.code === code);
@@ -335,7 +396,14 @@ export function PlaygroundPage() {
                       className={`block w-full rounded-2xl border px-4 py-3 text-left text-sm leading-6 ${tone}`}
                       onClick={() => {
                         setDrillPick((prev) => ({ ...prev, [drill.id]: i }));
-                        if (i === drill.answer) setCompleted((prev) => (prev.includes(drill.id) ? prev : [...prev, drill.id]));
+                        if (i === drill.answer) {
+                          setCompleted((prev) => {
+                            const next = prev.includes(drill.id) ? prev : [...prev, drill.id];
+                            completedRef.current = next;
+                            return next;
+                          });
+                          window.setTimeout(() => saveNow(), 0);
+                        }
                       }}
                     >
                       {option}
@@ -379,12 +447,27 @@ export function PlaygroundPage() {
               />
               <div className="flex flex-wrap items-center gap-3">
                 <Button
-                  disabled={!ready}
-                  onClick={() => setCompleted((prev) => (prev.includes(selected.code) ? prev : [...prev, selected.code]))}
+                  disabled={!ready || completed.includes(selected.code)}
+                  onClick={() => {
+                    setCompleted((prev) => {
+                      const next = prev.includes(selected.code) ? prev : [...prev, selected.code];
+                      completedRef.current = next;
+                      return next;
+                    });
+                    // Ensure the text that passed the checks is in the saved draft.
+                    setDrafts((prev) => {
+                      const next = { ...prev, [selected.code]: text };
+                      draftsRef.current = next;
+                      return next;
+                    });
+                    window.setTimeout(() => saveNow(), 0);
+                  }}
                 >
                   {completed.includes(selected.code) ? "Practiced" : "Mark practiced"}
                 </Button>
-                <span className="text-xs text-[var(--ink-muted)]">{save.isPending ? "Saving…" : "Saved on your account"}</span>
+                <span className="text-xs text-[var(--ink-muted)]">
+                  {saveState === "saving" ? "Saving…" : saveState === "error" ? "Save failed — stay on this page a moment" : "Saved on your account"}
+                </span>
               </div>
             </div>
           )}
