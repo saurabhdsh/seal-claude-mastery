@@ -363,7 +363,7 @@ function toGenerateError(err: unknown): HttpError {
   if (/api.?key|not configured|401|incorrect api/i.test(message)) {
     return new HttpError(
       502,
-      "AI provider rejected the request. Check OPENAI_API_KEY, ANTHROPIC_API_KEY, or ensure BEDROCK_ENABLED=true with the EC2 IAM role.",
+      "AI provider rejected the request. On Azure set OPENAI_API_KEY + OPENAI_BASE_URL + OPENAI_MODEL=gpt-5-mini. On AWS use BEDROCK_ENABLED=true with the EC2 IAM role, or set ANTHROPIC_API_KEY.",
       "AI_AUTH",
     );
   }

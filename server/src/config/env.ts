@@ -35,6 +35,11 @@ const schema = z.object({
   ANTHROPIC_CRITIC_MODEL: z.string().optional(),
   OPENAI_API_KEY: z.string().optional().default(""),
   OPENAI_MODEL: z.string().default("gpt-4.1"),
+  OPENAI_BASE_URL: z.string().optional().default(""),
+  SEAL_CLOUD: z.preprocess(
+    (v) => (v === "" || v == null ? "aws" : String(v).toLowerCase()),
+    z.enum(["aws", "azure"]).default("aws"),
+  ),
   BEDROCK_ENABLED: z.preprocess((v) => v === "true" || v === true, z.boolean().default(false)),
   AWS_REGION: z.string().default("us-east-1"),
   BEDROCK_MODEL_ID: z.string().optional(),
@@ -66,11 +71,25 @@ export const env = (parsed.success ? parsed.data : schema.parse({
 })) as z.infer<typeof schema>;
 
 export function activeProviderName(): "openai" | "anthropic" | "bedrock" {
-  // If Bedrock is enabled, always prefer it (EC2 IAM role based), even if AI_PROVIDER was set to "anthropic".
+  // Azure VMs have no Bedrock IAM role. Prefer OpenAI / Azure OpenAI there.
+  if (env.SEAL_CLOUD === "azure") {
+    if (env.AI_PROVIDER === "anthropic" && env.ANTHROPIC_API_KEY) return "anthropic";
+    return "openai";
+  }
+  // Explicit OpenAI wins even if an old .env still has BEDROCK_ENABLED=true.
+  if (env.AI_PROVIDER === "openai") return "openai";
+  // On AWS EC2, Bedrock via the instance role is the default when enabled.
   if (env.BEDROCK_ENABLED) return "bedrock";
   if (env.AI_PROVIDER) return env.AI_PROVIDER as "openai" | "anthropic" | "bedrock";
   if (env.OPENAI_API_KEY) return "openai";
   return "anthropic";
+}
+
+export function aiProviderReady(): boolean {
+  const name = activeProviderName();
+  if (name === "openai") return !!env.OPENAI_API_KEY;
+  if (name === "bedrock") return env.BEDROCK_ENABLED;
+  return !!env.ANTHROPIC_API_KEY;
 }
 
 export const aiModels = {

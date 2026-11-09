@@ -6,6 +6,10 @@ import type { AIProvider, CompletionInput, CompletionResult } from "./anthropicP
 
 const COST_PER_MTOK = { input: 2.5, output: 10 };
 
+function isRestrictedChatModel(model: string) {
+  return /^(gpt-5|o1|o3)/i.test(model);
+}
+
 export class OpenAIProvider implements AIProvider {
   private client: OpenAI | null = null;
 
@@ -13,23 +17,52 @@ export class OpenAIProvider implements AIProvider {
     if (!env.OPENAI_API_KEY) {
       throw new Error("OPENAI_API_KEY is not configured");
     }
-    if (!this.client) this.client = new OpenAI({ apiKey: env.OPENAI_API_KEY });
+    if (!this.client) {
+      const opts: ConstructorParameters<typeof OpenAI>[0] = { apiKey: env.OPENAI_API_KEY };
+      if (env.OPENAI_BASE_URL?.trim()) opts.baseURL = env.OPENAI_BASE_URL.trim().replace(/\/$/, "");
+      this.client = new OpenAI(opts);
+    }
     return this.client;
   }
 
   async complete(input: CompletionInput): Promise<CompletionResult> {
     const model = input.model || env.OPENAI_MODEL;
     const client = this.getClient();
-    const response = await client.chat.completions.create({
-      model,
-      temperature: input.temperature ?? 0.4,
-      max_tokens: input.maxTokens ?? env.AI_MAX_TOKENS,
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: input.system },
-        { role: "user", content: input.user },
-      ],
-    });
+    const restricted = isRestrictedChatModel(model);
+    const maxTokens = input.maxTokens ?? env.AI_MAX_TOKENS;
+
+    const messages = [
+      { role: "system" as const, content: input.system },
+      { role: "user" as const, content: input.user },
+    ];
+
+    const base: Record<string, unknown> = { model, messages };
+    if (restricted) {
+      base.max_completion_tokens = maxTokens;
+    } else {
+      base.temperature = input.temperature ?? 0.4;
+      base.max_tokens = maxTokens;
+      base.response_format = { type: "json_object" };
+    }
+
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await client.chat.completions.create(
+        base as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+      );
+    } catch (err) {
+      // Azure gpt-5 deployments often reject temperature / response_format. Retry stripped.
+      if (!restricted) throw err;
+      const retry: Record<string, unknown> = {
+        model,
+        messages,
+        max_completion_tokens: maxTokens,
+      };
+      response = await client.chat.completions.create(
+        retry as unknown as OpenAI.Chat.Completions.ChatCompletionCreateParamsNonStreaming,
+      );
+    }
+
     const text = response.choices[0]?.message?.content ?? "";
     const inputTokens = response.usage?.prompt_tokens ?? 0;
     const outputTokens = response.usage?.completion_tokens ?? 0;

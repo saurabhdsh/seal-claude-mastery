@@ -7,7 +7,14 @@ let provider: AIProvider | null = null;
 let providerName: string | null = null;
 
 export function resolveProviderName(force?: "openai" | "anthropic" | "bedrock"): "openai" | "anthropic" | "bedrock" {
-  if (force === "anthropic" && env.BEDROCK_ENABLED && !env.ANTHROPIC_API_KEY) {
+  // On AWS, "anthropic" without a direct API key can fall through to Bedrock.
+  // On Azure there is no Bedrock role — never route there.
+  if (
+    force === "anthropic" &&
+    env.SEAL_CLOUD !== "azure" &&
+    env.BEDROCK_ENABLED &&
+    !env.ANTHROPIC_API_KEY
+  ) {
     return "bedrock";
   }
   return force ?? activeProviderName();

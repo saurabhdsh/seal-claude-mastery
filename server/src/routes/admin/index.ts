@@ -1159,11 +1159,14 @@ adminRouter.get("/ai", requirePermission("admin.ai"), async (_req, res, next) =>
     const activeName = activeProviderName();
     const providerStatus = {
       active: activeName,
+      cloud: process.env.SEAL_CLOUD ?? "aws",
       bedrock: process.env.BEDROCK_ENABLED === "true",
       bedrockRegion: process.env.AWS_REGION ?? "us-east-1",
       bedrockModel: process.env.BEDROCK_MODEL_ID ?? "",
       anthropicConfigured: !!process.env.ANTHROPIC_API_KEY,
       openaiConfigured: !!process.env.OPENAI_API_KEY,
+      openaiBaseUrlConfigured: !!(process.env.OPENAI_BASE_URL ?? "").trim(),
+      openaiModel: process.env.OPENAI_MODEL ?? "",
       ready: activeName === "bedrock"
         ? process.env.BEDROCK_ENABLED === "true"
         : activeName === "openai"

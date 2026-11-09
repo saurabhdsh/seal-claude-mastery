@@ -25,9 +25,24 @@ cp .env.example .env   # skip if .env already exists
 docker compose up --build
 ```
 
-Then open **http://localhost:8080**.
+Then open **http://localhost:3000**.
 
 That starts Postgres, Redis, the API (migrations + seed on first boot), and the web app. API keys in `.env` (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`) are passed into the API container. Stop with `Ctrl+C` or `docker compose down`.
+
+### Azure VM
+
+Follow `migrate-aws-to-azure.md`. On `rapid-build-dev-server`:
+
+```bash
+git clone https://github.com/saurabhdsh/seal-claude-mastery.git
+cd seal-claude-mastery
+bash scripts/setup_azure.sh
+# paste OPENAI_API_KEY into .env, then:
+bash scripts/test-llm.sh
+sudo docker compose up -d
+```
+
+UI: **http://20.127.186.132:3000**. Open NSG inbound TCP **3000**. Practice-session data from EC2 is not migrated.
 
 Postgres and Redis stay on the Docker network (not published to the host), so this does not collide with Homebrew Postgres on port 5432.
 
@@ -53,7 +68,7 @@ If `db:migrate` is run for the first time it will create the initial Prisma migr
 
 ## Local database notes
 
-**Full Docker stack:** `docker compose up --build` — app at http://localhost:8080.
+**Full Docker stack:** `docker compose up --build` — app at http://localhost:3000.
 
 **Docker Postgres + Redis only, Node on the host:** add host ports to those services in `docker-compose.yml`, then `npm run db:up` and `DATABASE_URL=postgresql://seal:seal@localhost:5432/seal?schema=public`.
 
@@ -77,8 +92,9 @@ See `.env.example`. Critical keys:
 - `DATABASE_URL`
 - `REDIS_URL`
 - `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET`
-- `ANTHROPIC_API_KEY` (server only — never sent to the browser)
-- `ANTHROPIC_MODEL` and optional generation / evaluation / critic model overrides
+- `SEAL_CLOUD` (`azure` on the Azure VM; `aws` for EC2 Bedrock)
+- `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` (Azure OpenAI path)
+- `APP_URL` (must match the browser origin for CORS, e.g. `http://20.127.186.132:3000`)
 - `AI_MONTHLY_BUDGET_USD`, `AI_GENERATION_CONCURRENCY`
 
 Do not commit `.env`.

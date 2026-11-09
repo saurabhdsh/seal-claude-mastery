@@ -43,7 +43,8 @@ services:
     environment:
       NODE_ENV: production
       API_PORT: "4000"
-      APP_URL: http://localhost:8080
+      # Must match the browser origin (CORS). Override via .env APP_URL on Azure.
+      APP_URL: ${APP_URL:-http://localhost:3000}
       DATABASE_URL: postgresql://seal:seal@postgres:5432/seal?schema=public
       REDIS_URL: redis://redis:6379
       COOKIE_SECURE: "false"

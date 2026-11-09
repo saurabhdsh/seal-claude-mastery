@@ -1597,10 +1597,14 @@ export function AIControlPage() {
             <strong>AI ready</strong> — using{" "}
             {ps.active === "bedrock"
               ? `AWS Bedrock (${ps.bedrockModel || ps.bedrockRegion})`
-              : ps.active === "openai" ? "OpenAI" : "Anthropic Claude"}
+              : ps.active === "openai"
+                ? `OpenAI${ps.openaiModel ? ` (${ps.openaiModel})` : ""}${ps.cloud === "azure" ? " · Azure" : ""}`
+                : "Anthropic Claude"}
           </span>
         ) : (
-          <span><strong>AI not configured</strong> — set BEDROCK_ENABLED=true or add an API key in the server .env</span>
+          <span>
+            <strong>AI not configured</strong> — on Azure set OPENAI_API_KEY + OPENAI_BASE_URL; on AWS set BEDROCK_ENABLED=true
+          </span>
         )}
       </div>
 
@@ -1685,7 +1689,7 @@ export function AIControlPage() {
         <ErrorState error={new Error(formatGenerationError(sessionJob.error) || "Generation failed")} />
       )}
       <p className="text-xs text-[var(--ink-muted)]">
-        On EC2: set BEDROCK_ENABLED=true with the WeaveEC2BedrockRole IAM role — no API keys needed.
+        Azure VM: SEAL_CLOUD=azure, AI_PROVIDER=openai, OPENAI_MODEL=gpt-5-mini. EC2: BEDROCK_ENABLED=true with the instance IAM role.
         Auto-approve is disabled. Items land as DRAFT / AI_VALIDATED for human review.
       </p>
       <section className="space-y-3">

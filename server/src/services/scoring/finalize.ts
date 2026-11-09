@@ -5,7 +5,7 @@ import {
   overallFromParts,
 } from "./engine.js";
 import { fallbackNarrative, generateFeedback } from "../ai/feedbackGenerator.js";
-import { env } from "../../config/env.js";
+import { aiProviderReady } from "../../config/env.js";
 import type { DifficultyBand, QuestionType } from "@prisma/client";
 
 function clusterScore(
@@ -114,7 +114,7 @@ export async function finalizeAttemptScoring(attemptId: string) {
       score: overallFromParts(v.earned, v.possible),
     })),
   };
-  if (env.ANTHROPIC_API_KEY) {
+  if (aiProviderReady()) {
     try {
       narrative = await generateFeedback({ attemptId, profile });
     } catch {
