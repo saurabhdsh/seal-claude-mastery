@@ -167,8 +167,11 @@ async function main() {
   let created = 0;
   let updated = 0;
   let assigned = 0;
+  let refreshed = 0;
+  // Long enough for a multi-week cohort. Re-running this script always reopens the window.
+  const WINDOW_DAYS = Number(process.env.COHORT_WINDOW_DAYS ?? "90");
   const startsAt = new Date();
-  const expiresAt = new Date(Date.now() + 21 * 86400000);
+  const expiresAt = new Date(Date.now() + WINDOW_DAYS * 86400000);
 
   for (const row of [...COHORT, TESTER]) {
     const trainee = await upsertTrainee(row, passwordHash);
@@ -179,10 +182,25 @@ async function main() {
       where: {
         templateId: template.id,
         traineeId: trainee.id,
-        status: { in: [AssignmentStatus.ACTIVE, AssignmentStatus.SCHEDULED] },
+        status: { in: [AssignmentStatus.ACTIVE, AssignmentStatus.SCHEDULED, AssignmentStatus.EXPIRED] },
       },
+      orderBy: { createdAt: "desc" },
     });
-    if (already) continue;
+    if (already) {
+      // Prior bug: skip left expiresAt in the past → "Assessment window has expired" on Begin.
+      await prisma.assessmentAssignment.update({
+        where: { id: already.id },
+        data: {
+          startsAt,
+          expiresAt,
+          status: AssignmentStatus.ACTIVE,
+          assignedLevel: "EXPERT",
+          maxAttempts: row.username === TESTER.username ? 3 : 1,
+        },
+      });
+      refreshed += 1;
+      continue;
+    }
 
     await prisma.assessmentAssignment.create({
       data: {
@@ -205,13 +223,16 @@ async function main() {
         created,
         updated,
         assigned,
+        refreshed,
         template: TEMPLATE_NAME,
         questions: targetQuestionCount,
         approvedInBank: approved,
         minutes: Math.round(durationSeconds / 60),
         passingScore: 75,
         attempts: 1,
-        expiresInDays: 21,
+        expiresInDays: WINDOW_DAYS,
+        windowOpen: startsAt.toISOString(),
+        windowCloses: expiresAt.toISOString(),
         password: PASSWORD,
         tester: TESTER.username,
         logins: [...COHORT.map((r) => r.username), TESTER.username],
