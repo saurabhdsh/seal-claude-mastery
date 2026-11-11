@@ -1,15 +1,38 @@
-export function fingerprintQuestion(text: string, scenario: string) {
-  const norm = `${text}\n${scenario}`
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+function hashNorm(norm: string) {
   let h = 2166136261;
   for (let i = 0; i < norm.length; i++) {
     h ^= norm.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
   return `fp_${(h >>> 0).toString(16)}`;
+}
+
+export function fingerprintQuestion(text: string, scenario: string) {
+  const norm = `${text}\n${scenario}`
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return hashNorm(norm);
+}
+
+/**
+ * Near-duplicate key used during sitting assembly.
+ * Strips module codes (F01…) and quoted names so templated seed stems
+ * that only differ by module label collapse to one family.
+ */
+export function familyFingerprint(text: string, scenario: string) {
+  // Prefer the stem (question text). Strip module codes/context so the same
+  // catalog stem used under F01 vs F02 counts as one family in a sitting.
+  const norm = `${text}\n${scenario}`
+    .toLowerCase()
+    .replace(/\(module context:.*?\)/g, " ")
+    .replace(/\b[fpaex]\d{2}\b/g, "module")
+    .replace(/"[^"]{2,120}"/g, "name")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return hashNorm(norm);
 }
 
 export function tokenOverlap(a: string, b: string) {

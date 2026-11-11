@@ -20,6 +20,8 @@
     "generate:level": "tsx src/scripts/generateLevel.ts",
     "validate:anthropic": "tsx src/scripts/validateAnthropic.ts",
     "validate:question-bank": "tsx src/scripts/validateQuestionBank.ts",
+    "regress:assessment": "tsx src/scripts/regressAssessmentQuality.ts",
+    "refresh:seed-questions": "tsx src/scripts/refreshSeedQuestionBank.ts",
     "recalculate:analytics": "tsx src/scripts/recalculateAnalytics.ts"
   },
   "prisma": {

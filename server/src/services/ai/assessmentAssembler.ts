@@ -11,6 +11,8 @@ export type AssemblerQuestion = {
   lastUsedAt: Date | null;
   competencyIds: string[];
   fingerprint: string;
+  /** Near-duplicate family; at most one selected per sitting when set. */
+  familyFingerprint?: string;
 };
 
 export type AssemblerInput = {
@@ -86,6 +88,8 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
   );
   const selected: AssemblerQuestion[] = [];
   const selectedIds = new Set<string>();
+  const selectedFingerprints = new Set<string>();
+  const selectedFamilies = new Set<string>();
   let time = 0;
   const moduleCount: Record<string, number> = Object.fromEntries(input.moduleIds.map((id) => [id, 0]));
   const levelCount: Record<string, number> = {};
@@ -103,7 +107,13 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
   };
 
   while (selected.length < hardCap) {
-    const unused = pool.filter((q) => !selectedIds.has(q.id));
+    const unused = pool.filter((q) => {
+      if (selectedIds.has(q.id)) return false;
+      if (q.fingerprint && selectedFingerprints.has(q.fingerprint)) return false;
+      const family = q.familyFingerprint || q.fingerprint;
+      if (family && selectedFamilies.has(family)) return false;
+      return true;
+    });
     if (!unused.length) break;
     const remaining = targetTime - time;
     const fitting = unused.filter((q) => q.estimatedTimeSeconds <= remaining);
@@ -129,6 +139,8 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
         input.adaptiveAbility == null
           ? 0.2
           : 1 - Math.abs(input.adaptiveAbility - difficultyToAbility(q.difficulty));
+      // Prefer modules not yet represented so a sitting does not collapse onto one pattern.
+      const moduleNovelty = (moduleCount[q.moduleId] ?? 0) === 0 ? 1.2 : 0;
       const jitter = rand() * 0.08;
       const score =
         modNeed * 2.4 +
@@ -139,6 +151,7 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
         recency * 0.4 +
         competencyNeed * 1.3 +
         abilityFit * 0.7 +
+        moduleNovelty +
         jitter;
       if (score > bestScore) {
         bestScore = score;
@@ -149,6 +162,9 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
     if (!best) break;
     selected.push(best);
     selectedIds.add(best.id);
+    if (best.fingerprint) selectedFingerprints.add(best.fingerprint);
+    const family = best.familyFingerprint || best.fingerprint;
+    if (family) selectedFamilies.add(family);
     time += best.estimatedTimeSeconds;
     moduleCount[best.moduleId] = (moduleCount[best.moduleId] ?? 0) + 1;
     levelCount[best.level] = (levelCount[best.level] ?? 0) + 1;

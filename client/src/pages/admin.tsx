@@ -1148,7 +1148,7 @@ export function AssessmentDetailPage() {
       <section className="space-y-4 rounded-2xl border border-[var(--line)] p-5">
         <h2 className="font-medium">Assign a trainee</h2>
         <p className="text-sm text-[var(--ink-muted)]">
-          After login they see this sitting. Begin assembles 40 questions from the modules below only. They get{" "}
+          After login they see this sitting. Begin assembles the template&apos;s question count from the modules below only. They get{" "}
           {maxAttempts} attempt{maxAttempts === 1 ? "" : "s"} within 30 days.
         </p>
         <div className="flex flex-wrap items-end gap-3">

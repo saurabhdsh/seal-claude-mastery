@@ -74,7 +74,7 @@ export function InstructionsPage() {
       if (
         q.data?.existingAttemptStatus === "IN_PROGRESS" &&
         q.data.existingAttemptId &&
-        (q.data.existingQuestionCount ?? 0) >= 40 &&
+        (q.data.existingQuestionCount ?? 0) >= (q.data.approximateQuestions ?? 40) &&
         (q.data.existingLevelCount ?? 0) >= 4
       ) {
         return q.data.existingAttemptId as string;
@@ -104,8 +104,8 @@ export function InstructionsPage() {
       <div className="mt-6">
         <div className="text-xs uppercase tracking-[0.14em] text-[var(--ink-muted)]">Coverage</div>
         <p className="mt-2 text-sm leading-7">
-          {d.coverage ?? "Foundation, Practitioner, Advanced, and Expert modules."} The 40 items are drawn from the
-          full catalog (F, P, A, X, E), not only your assigned track.
+          {d.coverage ?? "Foundation, Practitioner, Advanced, and Expert modules."} The {d.approximateQuestions} items
+          are drawn from the full catalog (F, P, A, X, E), not only your assigned track.
         </p>
       </div>
       <ul className="mt-6 space-y-2 text-sm text-[var(--ink-muted)]">
@@ -120,7 +120,7 @@ export function InstructionsPage() {
         I understand these rules and will complete the assessment under the stated integrity policy.
       </label>
       {d.existingAttemptStatus === "IN_PROGRESS" &&
-        (d.existingQuestionCount ?? 0) >= 40 &&
+        (d.existingQuestionCount ?? 0) >= (d.approximateQuestions ?? 40) &&
         (d.existingLevelCount ?? 0) >= 4 && (
         <p className="mt-4 text-sm text-coral">An in-progress sitting was found. You will resume with remaining time restored.</p>
       )}
@@ -134,7 +134,7 @@ export function InstructionsPage() {
           {start.isPending
             ? "Assembling…"
             : d.existingAttemptStatus === "IN_PROGRESS" &&
-                (d.existingQuestionCount ?? 0) >= 40 &&
+                (d.existingQuestionCount ?? 0) >= (d.approximateQuestions ?? 40) &&
                 (d.existingLevelCount ?? 0) >= 4
               ? "Resume assessment"
               : "Begin assessment"}

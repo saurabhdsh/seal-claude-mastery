@@ -13,7 +13,6 @@ import {
   submitAttempt,
 } from "../services/runtime/attemptService.js";
 import { IntegrityEventType } from "@prisma/client";
-import { STANDARD_QUESTION_COUNT } from "../services/ai/assessmentAssembler.js";
 import { assertAssessmentOpen, getPlatformAccess } from "../services/platform/access.js";
 
 export const assessmentRouter = Router();
@@ -71,7 +70,8 @@ assessmentRouter.get("/assignments/:id/instructions", requirePermission("assessm
       employeeId: asg.trainee.employeeId,
       assignedLevel: asg.assignedLevel,
       durationSeconds: asg.template.durationSeconds,
-      approximateQuestions: STANDARD_QUESTION_COUNT,
+      approximateQuestions: asg.template.targetQuestionCount,
+      templateName: asg.template.name,
       coverage: "All levels — Foundation, Practitioner, Advanced, and Expert — across the full module catalog.",
       modules: modules.map((m) => ({ code: m.code, name: m.name, level: m.level })),
       rules: {

@@ -130,7 +130,8 @@ async function main() {
   if (modules.length === 0) throw new Error("No curriculum modules. Run the app seed first.");
 
   const approved = await prisma.question.count({ where: { status: "APPROVED" } });
-  const targetQuestionCount = Math.min(60, Math.max(1, approved));
+  // Standard sitting size is 40. Asking for 60 with a templated bank produced near-duplicate stems.
+  const targetQuestionCount = Math.min(40, Math.max(1, approved));
   const durationSeconds = Math.min(10800, Math.max(5400, targetQuestionCount * 180));
 
   const templateData = {

@@ -12,20 +12,47 @@ import {
 import { evaluateWrittenAnswer } from "../ai/answerEvaluator.js";
 import { isObjective, scoreObjective, updateAbility } from "../scoring/engine.js";
 import { finalizeAttemptScoring } from "../scoring/finalize.js";
+import { familyFingerprint } from "../questions/fingerprint.js";
 
-function snapshotQuestion(q: {
-  id: string;
-  questionText: string;
-  scenario: string | null;
-  codeSnippet: string | null;
-  codeLanguage: string | null;
-  architectureArtifact: Prisma.JsonValue | null;
-  questionType: string;
-  estimatedTimeSeconds: number;
-  level?: string;
-  module?: { code: string; name: string; level: string } | null;
-  options: { key: string; body: string; position: number }[];
-}) {
+function mulberry32(seed: number) {
+  return () => {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function snapshotQuestion(
+  q: {
+    id: string;
+    questionText: string;
+    scenario: string | null;
+    codeSnippet: string | null;
+    codeLanguage: string | null;
+    architectureArtifact: Prisma.JsonValue | null;
+    questionType: string;
+    estimatedTimeSeconds: number;
+    level?: string;
+    module?: { code: string; name: string; level: string } | null;
+    options: { key: string; body: string; position: number; isCorrect: boolean }[];
+  },
+  shuffleSeed: string,
+) {
+  const ordered = [...q.options].sort((a, b) => a.position - b.position);
+  const rand = mulberry32(
+    [...shuffleSeed].reduce((h, c) => Math.imul(h ^ c.charCodeAt(0), 16777619), 2166136261) >>> 0,
+  );
+  for (let i = ordered.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [ordered[i], ordered[j]] = [ordered[j], ordered[i]];
+  }
+  const remapped = ordered.map((o, i) => ({
+    key: String.fromCharCode(65 + i),
+    body: o.body,
+    isCorrect: o.isCorrect,
+  }));
+  const correctKeys = remapped.filter((o) => o.isCorrect).map((o) => o.key);
   return {
     id: q.id,
     questionText: q.questionText,
@@ -38,9 +65,8 @@ function snapshotQuestion(q: {
     level: q.level ?? q.module?.level,
     moduleCode: q.module?.code,
     moduleName: q.module?.name,
-    options: q.options
-      .sort((a, b) => a.position - b.position)
-      .map((o) => ({ key: o.key, body: o.body })),
+    options: remapped.map((o) => ({ key: o.key, body: o.body })),
+    correctKeys,
   };
 }
 
@@ -142,6 +168,7 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
     lastUsedAt: q.lastUsedAt,
     competencyIds: q.competencies.map((c) => c.competencyId),
     fingerprint: q.fingerprint,
+    familyFingerprint: familyFingerprint(q.questionText, q.scenario ?? ""),
   }));
 
   const moduleWeights = Object.fromEntries(
@@ -169,22 +196,39 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
     `${attemptId}:${traineeId}`,
   );
 
+  const selectedFamilies = new Set(
+    assembled.selected.map((q) => q.familyFingerprint || q.fingerprint).filter(Boolean),
+  );
   if (assembled.selected.length < targetCount) {
     const fill = assemblerQuestions
-      .filter((q) => !assembled.selected.some((s) => s.id === q.id))
+      .filter((q) => {
+        if (assembled.selected.some((s) => s.id === q.id)) return false;
+        if (q.fingerprint && assembled.selected.some((s) => s.fingerprint === q.fingerprint)) return false;
+        const family = q.familyFingerprint || q.fingerprint;
+        if (family && selectedFamilies.has(family)) return false;
+        return true;
+      })
       .sort((a, b) => Number(seenIds.has(a.id)) - Number(seenIds.has(b.id)));
     for (const q of fill) {
       if (assembled.selected.length >= targetCount) break;
       assembled.selected.push(q);
+      const family = q.familyFingerprint || q.fingerprint;
+      if (family) selectedFamilies.add(family);
     }
   }
 
-  if (assembled.selected.length < targetCount) {
+  // Never pad with near-duplicates. Prefer a shorter unique sitting over repeats.
+  const uniqueSelected = assembled.selected.slice(0, targetCount);
+  const ids = uniqueSelected.map((q) => q.id);
+  if (new Set(ids).size !== ids.length) {
+    throw badRequest("Assessment assembly produced duplicate question ids. Contact an administrator.");
+  }
+  if (uniqueSelected.length < Math.min(targetCount, STANDARD_QUESTION_COUNT)) {
     throw badRequest(
-      `This assessment needs ${targetCount} approved questions across its modules, but only ${assemblerQuestions.length} are available. Approve more items in the question bank for these modules.`,
+      `This assessment needs ${targetCount} distinct approved questions, but only ${uniqueSelected.length} unique items are available after removing near-duplicates. Refresh the question bank or approve more diverse items.`,
     );
   }
-  assembled.selected = assembled.selected.slice(0, targetCount);
+  assembled.selected = uniqueSelected;
 
   const full = await prisma.question.findMany({
     where: { id: { in: assembled.selected.map((q) => q.id) } },
@@ -208,14 +252,18 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
       },
     });
     await tx.attemptQuestion.createMany({
-      data: assembled.selected.map((q, i) => ({
-        attemptId,
-        questionId: q.id,
-        position: i,
-        assignedDifficulty: q.difficulty,
-        snapshot: snapshotQuestion(byId[q.id]) as Prisma.InputJsonValue,
-        revealed: !template.adaptiveEnabled || i === 0,
-      })),
+      data: assembled.selected.map((q, i) => {
+        const row = byId[q.id];
+        if (!row) throw badRequest(`Question ${q.id} missing while assembling attempt`);
+        return {
+          attemptId,
+          questionId: q.id,
+          position: i,
+          assignedDifficulty: q.difficulty,
+          snapshot: snapshotQuestion(row, `${attemptId}:${q.id}:${i}`) as Prisma.InputJsonValue,
+          revealed: !template.adaptiveEnabled || i === 0,
+        };
+      }),
     });
     await tx.question.updateMany({
       where: { id: { in: assembled.selected.map((q) => q.id) } },
@@ -438,9 +486,14 @@ export async function finalizeAttempt(attemptId: string, reason: "submit" | "exp
       if (!q) continue;
       const answer = attempt.answers.find((a) => a.questionId === q.id);
       if (isObjective(q.questionType)) {
+        const snap = aq.snapshot as { correctKeys?: string[] } | null;
+        const correctAnswer =
+          Array.isArray(snap?.correctKeys) && snap!.correctKeys!.length > 0
+            ? { keys: snap!.correctKeys }
+            : q.correctAnswer;
         const scored = scoreObjective({
           type: q.questionType,
-          correctAnswer: q.correctAnswer,
+          correctAnswer,
           selectedKeys: answer?.selectedKeys ?? [],
           sequence: answer?.sequence,
           matchPairs: answer?.matchPairs,
