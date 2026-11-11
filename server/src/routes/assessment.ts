@@ -48,10 +48,11 @@ assessmentRouter.get("/assignments/:id/instructions", requirePermission("assessm
     const inProgress = asg.attempts.find((a) => a.status === "IN_PROGRESS");
     const pending = asg.attempts.find((a) => a.status === "PENDING");
     const latestDone = asg.attempts.find((a) =>
-      ["COMPLETED", "EXPIRED", "LOCKED"].includes(a.status),
+      ["COMPLETED", "LOCKED"].includes(a.status),
     );
+    // EXPIRED (timeout / dropped session) does not consume the attempt quota.
     const consumed = asg.attempts.filter((a) =>
-      ["COMPLETED", "EXPIRED", "LOCKED", "SUBMITTED", "EVALUATING"].includes(a.status),
+      ["COMPLETED", "LOCKED", "SUBMITTED", "EVALUATING"].includes(a.status),
     ).length;
     let existingLevelCount = 0;
     if (inProgress) {

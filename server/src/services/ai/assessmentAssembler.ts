@@ -1,4 +1,5 @@
 import type { CurriculumLevel, DifficultyBand, QuestionType } from "@prisma/client";
+import { tokenOverlap } from "../questions/fingerprint.js";
 
 export type AssemblerQuestion = {
   id: string;
@@ -13,6 +14,10 @@ export type AssemblerQuestion = {
   fingerprint: string;
   /** Near-duplicate family; at most one selected per sitting when set. */
   familyFingerprint?: string;
+  /** Used for soft near-duplicate rejection inside a sitting. */
+  questionText?: string;
+  /** Option bodies — reject candidates that reuse too many of the same distractors. */
+  optionBodies?: string[];
 };
 
 export type AssemblerInput = {
@@ -90,6 +95,7 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
   const selectedIds = new Set<string>();
   const selectedFingerprints = new Set<string>();
   const selectedFamilies = new Set<string>();
+  const selectedOptionBodies = new Set<string>();
   let time = 0;
   const moduleCount: Record<string, number> = Object.fromEntries(input.moduleIds.map((id) => [id, 0]));
   const levelCount: Record<string, number> = {};
@@ -106,12 +112,35 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
     return Math.max(0, desired - current);
   };
 
+  const normBody = (s: string) => s.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+
+  const sharedOptionCount = (q: AssemblerQuestion) => {
+    if (!q.optionBodies?.length) return 0;
+    let shared = 0;
+    for (const body of q.optionBodies) {
+      if (selectedOptionBodies.has(normBody(body))) shared += 1;
+    }
+    return shared;
+  };
+
+  const stemOverlapPenalty = (q: AssemblerQuestion) => {
+    if (!q.questionText) return 0;
+    let worst = 0;
+    for (const s of selected) {
+      if (!s.questionText) continue;
+      worst = Math.max(worst, tokenOverlap(q.questionText, s.questionText));
+    }
+    return worst >= 0.55 ? (worst - 0.55) * 6 : 0;
+  };
+
   while (selected.length < hardCap) {
     const unused = pool.filter((q) => {
       if (selectedIds.has(q.id)) return false;
       if (q.fingerprint && selectedFingerprints.has(q.fingerprint)) return false;
       const family = q.familyFingerprint || q.fingerprint;
       if (family && selectedFamilies.has(family)) return false;
+      // Hard-block only when most options are recycled verbatim.
+      if (sharedOptionCount(q) >= 3) return false;
       return true;
     });
     if (!unused.length) break;
@@ -141,6 +170,8 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
           : 1 - Math.abs(input.adaptiveAbility - difficultyToAbility(q.difficulty));
       // Prefer modules not yet represented so a sitting does not collapse onto one pattern.
       const moduleNovelty = (moduleCount[q.moduleId] ?? 0) === 0 ? 1.2 : 0;
+      const typeNovelty = (typeCount[q.questionType] ?? 0) === 0 ? 0.8 : 0;
+      const optionPenalty = sharedOptionCount(q) * 1.6;
       const jitter = rand() * 0.08;
       const score =
         modNeed * 2.4 +
@@ -152,7 +183,10 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
         competencyNeed * 1.3 +
         abilityFit * 0.7 +
         moduleNovelty +
-        jitter;
+        typeNovelty +
+        jitter -
+        optionPenalty -
+        stemOverlapPenalty(q);
       if (score > bestScore) {
         bestScore = score;
         best = q;
@@ -165,6 +199,7 @@ export function assembleAssessment(input: AssemblerInput, seedKey = "seal"): Ass
     if (best.fingerprint) selectedFingerprints.add(best.fingerprint);
     const family = best.familyFingerprint || best.fingerprint;
     if (family) selectedFamilies.add(family);
+    for (const body of best.optionBodies ?? []) selectedOptionBodies.add(normBody(body));
     time += best.estimatedTimeSeconds;
     moduleCount[best.moduleId] = (moduleCount[best.moduleId] ?? 0) + 1;
     levelCount[best.level] = (levelCount[best.level] ?? 0) + 1;

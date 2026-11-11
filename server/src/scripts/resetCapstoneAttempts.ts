@@ -68,10 +68,10 @@ async function main() {
     }
   }
 
-  // Ensure every ACTIVE assignment still has an attempt available.
+  // Reconnect-friendly quota after drops/timeouts.
   const bumped = await prisma.assessmentAssignment.updateMany({
     where: { templateId: template.id, status: "ACTIVE" },
-    data: { maxAttempts: 1 },
+    data: { maxAttempts: 3 },
   });
 
   console.log(
@@ -82,7 +82,8 @@ async function main() {
         deletedAttempts: deleted,
         keptGoodAttempts: kept,
         assignmentsTouched: bumped.count,
-        note: "Bad/old sittings removed. Trainees can Begin assessment again (password unchanged).",
+        maxAttempts: 3,
+        note: "Bad/old sittings removed. maxAttempts=3. Passwords unchanged. Trainees can Begin again.",
       },
       null,
       2,

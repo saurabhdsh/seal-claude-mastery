@@ -197,7 +197,7 @@ describe("assessment accuracy — end-to-end offline", () => {
     expect(checked).toBeGreaterThanOrEqual(80);
   });
 
-  it("keeps question text distinct across a full assembled sitting", () => {
+  it("keeps question text distinct and limits shared option bodies across a sitting", () => {
     const moduleIds = [...new Set(bank.map((q) => q.moduleCode))];
     const questions = bank.map((q, i) => ({
       id: `q${i}`,
@@ -212,6 +212,7 @@ describe("assessment accuracy — end-to-end offline", () => {
       fingerprint: q.fingerprint,
       familyFingerprint: q.familyFingerprint,
       questionText: q.questionText,
+      optionBodies: (q.options ?? []).map((o) => o.body),
     }));
     const result = assembleAssessment(
       {
@@ -226,8 +227,30 @@ describe("assessment accuracy — end-to-end offline", () => {
       },
       "text-distinct",
     );
+    expect(result.selected.length).toBe(STANDARD_QUESTION_COUNT);
     const byId = Object.fromEntries(questions.map((q) => [q.id, q]));
     const texts = result.selected.map((q) => byId[q.id].questionText);
     expect(new Set(texts).size).toBe(texts.length);
+
+    const bodyCounts = new Map<string, number>();
+    for (const q of result.selected) {
+      for (const body of byId[q.id].optionBodies) {
+        const key = body.toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+        bodyCounts.set(key, (bodyCounts.get(key) ?? 0) + 1);
+      }
+    }
+    const heavilyReused = [...bodyCounts.values()].filter((n) => n >= 3).length;
+    // Soft guard: identical option strings should not dominate the paper.
+    expect(heavilyReused).toBeLessThan(6);
   });
 });
+
+describe("attempt limits", () => {
+  it("does not treat EXPIRED as consuming an attempt", async () => {
+    const { countsTowardAttemptLimit } = await import("./attemptLimits.js");
+    expect(countsTowardAttemptLimit("EXPIRED")).toBe(false);
+    expect(countsTowardAttemptLimit("COMPLETED")).toBe(true);
+    expect(countsTowardAttemptLimit("IN_PROGRESS")).toBe(false);
+  });
+});
+

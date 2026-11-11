@@ -180,7 +180,7 @@ export async function finalizeAttemptScoring(attemptId: string) {
   });
   if (assignment) {
     const consumed = assignment.attempts.filter((a) =>
-      ["COMPLETED", "EXPIRED", "LOCKED", "SUBMITTED", "EVALUATING"].includes(a.status),
+      ["COMPLETED", "LOCKED", "SUBMITTED", "EVALUATING"].includes(a.status),
     ).length;
     await prisma.assessmentAssignment.update({
       where: { id: assignment.id },

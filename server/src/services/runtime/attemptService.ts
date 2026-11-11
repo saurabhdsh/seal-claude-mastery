@@ -14,6 +14,15 @@ import { isObjective, scoreObjective, updateAbility } from "../scoring/engine.js
 import { finalizeAttemptScoring } from "../scoring/finalize.js";
 import { familyFingerprint } from "../questions/fingerprint.js";
 import { sanitizeTraineeSnapshot, snapshotQuestion } from "./attemptSnapshot.js";
+import { countsTowardAttemptLimit } from "./attemptLimits.js";
+
+async function deleteAttemptTree(attemptId: string) {
+  await prisma.integrityEvent.deleteMany({ where: { attemptId } });
+  await prisma.answer.deleteMany({ where: { attemptId } });
+  await prisma.assessmentResult.deleteMany({ where: { attemptId } }).catch(() => undefined);
+  await prisma.attemptQuestion.deleteMany({ where: { attemptId } });
+  await prisma.assessmentAttempt.delete({ where: { id: attemptId } });
+}
 
 export async function startAttempt(assignmentId: string, traineeId: string) {
   const assignment = await prisma.assessmentAssignment.findUnique({
@@ -30,29 +39,25 @@ export async function startAttempt(assignmentId: string, traineeId: string) {
   if (now < assignment.startsAt) throw forbidden("Assessment has not opened");
   if (now > assignment.expiresAt) throw forbidden("Assessment window has expired");
 
+  const targetCount = Math.min(
+    80,
+    Math.max(1, assignment.template.targetQuestionCount ?? STANDARD_QUESTION_COUNT),
+  );
+
   const inFlight = assignment.attempts.find((a) => a.status === AttemptStatus.IN_PROGRESS);
   if (inFlight) {
-    // Resume only fully assembled template-scoped sittings; discard partial/legacy attempts.
-    if (inFlight.questionCount >= STANDARD_QUESTION_COUNT) {
+    // Resume a fully assembled sitting (including after browser refresh / brief disconnect).
+    if (inFlight.questionCount >= Math.min(targetCount, STANDARD_QUESTION_COUNT)) {
       return getAttemptForTrainee(inFlight.id, traineeId);
     }
-    await prisma.assessmentAttempt.delete({ where: { id: inFlight.id } });
+    await deleteAttemptTree(inFlight.id);
   }
 
   const existingPending = assignment.attempts.find((a) => a.status === AttemptStatus.PENDING);
   if (existingPending) return existingPending;
 
-  const consumed = assignment.attempts.filter((a) =>
-    (
-      [
-        AttemptStatus.COMPLETED,
-        AttemptStatus.EXPIRED,
-        AttemptStatus.LOCKED,
-        AttemptStatus.SUBMITTED,
-        AttemptStatus.EVALUATING,
-      ] as AttemptStatus[]
-    ).includes(a.status),
-  ).length;
+  // Timed-out / dropped sittings do not burn the attempt quota.
+  const consumed = assignment.attempts.filter((a) => countsTowardAttemptLimit(a.status)).length;
   if (consumed >= assignment.maxAttempts) {
     throw forbidden("No attempts remaining");
   }
@@ -99,7 +104,7 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
       status: QuestionStatus.APPROVED,
       moduleId: { in: moduleIds },
     },
-    include: { competencies: true },
+    include: { competencies: true, options: true },
   });
 
   const assemblerQuestions: AssemblerQuestion[] = bank.map((q) => ({
@@ -114,6 +119,8 @@ export async function acknowledgeAndBegin(attemptId: string, traineeId: string) 
     competencyIds: q.competencies.map((c) => c.competencyId),
     fingerprint: q.fingerprint,
     familyFingerprint: familyFingerprint(q.questionText, q.scenario ?? ""),
+    questionText: q.questionText,
+    optionBodies: q.options.map((o) => o.body),
   }));
 
   const moduleWeights = Object.fromEntries(

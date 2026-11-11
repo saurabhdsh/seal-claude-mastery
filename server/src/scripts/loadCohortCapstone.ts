@@ -7,7 +7,7 @@
  *
  * Shared password (override with COHORT_PASSWORD): ClaudeMastery@2026
  */
-import { AssignmentStatus, CurriculumLevel } from "@prisma/client";
+import { AssignmentStatus, CurriculumLevel, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { assertPassword, hashPassword } from "../services/auth/authService.js";
 
@@ -53,20 +53,6 @@ const TESTER = { firstName: "Saurabh", lastName: "Dubey", username: "saurabh.dub
 
 const LEVEL_MIX = { FOUNDATION: 0.1, PRACTITIONER: 0.2, ADVANCED: 0.35, EXPERT: 0.35 };
 const DIFFICULTY_MIX = { HARD: 0.2, VERY_HARD: 0.3, EXPERT: 0.3, ADVERSARIAL: 0.2 };
-const TYPE_MIX = {
-  CODE_ANALYSIS: 0.12,
-  FIND_THE_DEFECT: 0.1,
-  CLAUDE_CODE_WORKFLOW: 0.1,
-  SCENARIO_DECISION: 0.12,
-  ARCHITECTURE_DECISION: 0.1,
-  SECURITY_INCIDENT: 0.08,
-  AGENT_WORKFLOW: 0.08,
-  MCP_SCHEMA: 0.06,
-  TOOL_CALL_REASONING: 0.06,
-  PROMPT_CRITIQUE: 0.06,
-  EVALUATION_DESIGN: 0.06,
-  SHORT_RESPONSE: 0.06,
-};
 
 function moduleWeight(level: CurriculumLevel) {
   if (level === "EXPERT") return 2.5;
@@ -145,7 +131,8 @@ async function main() {
     targetQuestionCount,
     levelMix: LEVEL_MIX,
     difficultyMix: DIFFICULTY_MIX,
-    typeMix: TYPE_MIX,
+    // Clear any prior typeMix — a narrow blend reused similar stems/options.
+    typeMix: Prisma.DbNull,
     adaptiveEnabled: false,
     allowNavigation: true,
     showAnswerKeyOnComplete: false,
@@ -196,7 +183,8 @@ async function main() {
           expiresAt,
           status: AssignmentStatus.ACTIVE,
           assignedLevel: "EXPERT",
-          maxAttempts: row.username === TESTER.username ? 3 : 1,
+          // Allow reconnect after timeout/drop without burning the only attempt.
+          maxAttempts: 3,
         },
       });
       refreshed += 1;
@@ -210,7 +198,7 @@ async function main() {
         assignedLevel: "EXPERT",
         startsAt,
         expiresAt,
-        maxAttempts: row.username === TESTER.username ? 3 : 1,
+        maxAttempts: 3,
         status: AssignmentStatus.ACTIVE,
       },
     });
