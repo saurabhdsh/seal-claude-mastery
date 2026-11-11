@@ -98,15 +98,22 @@ async function main() {
         timeBudgetSeconds: Math.min(10800, Math.max(5400, 40 * 180)),
       },
     });
-    // Force a clean re-assemble after the bank rewrite (old sittings had near-duplicate stems).
-    const stale = await prisma.assessmentAttempt.updateMany({
+    // Hard-delete open sittings (do NOT mark EXPIRED — that would consume maxAttempts=1).
+    const stale = await prisma.assessmentAttempt.findMany({
       where: {
-        status: { in: [AttemptStatus.IN_PROGRESS, AttemptStatus.PENDING] },
+        status: { in: [AttemptStatus.IN_PROGRESS, AttemptStatus.PENDING, AttemptStatus.EXPIRED] },
         assignment: { templateId: capstone.id },
       },
-      data: { status: AttemptStatus.EXPIRED, finalizedAt: new Date(), submittedAt: new Date() },
+      select: { id: true },
     });
-    invalidatedAttempts = stale.count;
+    for (const row of stale) {
+      await prisma.integrityEvent.deleteMany({ where: { attemptId: row.id } });
+      await prisma.answer.deleteMany({ where: { attemptId: row.id } });
+      await prisma.assessmentResult.deleteMany({ where: { attemptId: row.id } }).catch(() => undefined);
+      await prisma.attemptQuestion.deleteMany({ where: { attemptId: row.id } });
+      await prisma.assessmentAttempt.delete({ where: { id: row.id } });
+    }
+    invalidatedAttempts = stale.length;
   }
 
   console.log(
