@@ -21,10 +21,11 @@ export function fingerprintQuestion(text: string, scenario: string) {
  * Strips module codes (F01…) and quoted names so templated seed stems
  * that only differ by module label collapse to one family.
  */
-export function familyFingerprint(text: string, scenario: string) {
-  // Prefer the stem (question text). Strip module codes/context so the same
-  // catalog stem used under F01 vs F02 counts as one family in a sitting.
-  const norm = `${text}\n${scenario}`
+export function familyFingerprint(text: string, _scenario = "") {
+  // Trainee-visible sameness is the question stem. Ignore module scenario wrappers
+  // so the same catalog stem under F01 vs F02 cannot appear twice in one sitting.
+  void _scenario;
+  const norm = text
     .toLowerCase()
     .replace(/\(module context:.*?\)/g, " ")
     .replace(/\b[fpaex]\d{2}\b/g, "module")

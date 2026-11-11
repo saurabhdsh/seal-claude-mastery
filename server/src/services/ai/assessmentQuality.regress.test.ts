@@ -82,5 +82,6 @@ describe("assessment sitting quality (regressive)", () => {
       "Fluent answers cite the wrong system of record. (Module context: F02 — LLM mechanics for practitioners.)",
     );
     expect(a).toBe(b);
+    expect(a).toBe(familyFingerprint("What MOST directly reduces silent operational error?"));
   });
 });
