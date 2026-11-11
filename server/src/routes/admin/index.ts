@@ -31,7 +31,7 @@ import { dashboardMetrics, questionQuality, competencyWeakness } from "../../ser
 import { computeBankStatus, isPendingReview } from "../../services/questions/bankStatus.js";
 import { getPlatformAccess, setPlatformAccess } from "../../services/platform/access.js";
 import { practiceLog } from "../../services/platform/practiceClock.js";
-import { buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
+import { attemptTiming, buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
 import { buildPracticeLogExcel, buildTraineesExcel } from "../../services/export/rosterExport.js";
 
 /** Unused non-live drafts that can be deleted before regenerating (keeps APPROVED / RETIRED). */
@@ -1061,13 +1061,20 @@ adminRouter.get("/results", requirePermission("admin.results.read"), async (req,
         attempt: {
           include: {
             trainee: true,
+            answers: { select: { timeSpentMs: true, selectedKeys: true, textResponse: true, sequence: true, matchPairs: true } },
+            integrityEvents: { select: { type: true } },
             assignment: { include: { template: { select: { name: true, passingScore: true } } } },
           },
         },
       },
       orderBy: { createdAt: "desc" },
     });
-    res.json(rows);
+    res.json(
+      rows.map((r) => ({
+        ...r,
+        timing: attemptTiming(r.attempt),
+      })),
+    );
   } catch (e) {
     next(e);
   }
@@ -1126,7 +1133,7 @@ adminRouter.get("/results/:attemptId", requirePermission("admin.results.read"), 
       },
     });
     if (!result) throw notFound();
-    res.json(result);
+    res.json({ ...result, timing: attemptTiming(result.attempt) });
   } catch (e) {
     next(e);
   }

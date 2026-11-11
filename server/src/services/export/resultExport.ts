@@ -96,12 +96,85 @@ function recordedResponse(q: FullResult["attempt"]["questions"][number], answer:
   return "No response recorded";
 }
 
+function formatDuration(totalSeconds: number | null | undefined) {
+  if (totalSeconds == null || !Number.isFinite(totalSeconds) || totalSeconds < 0) return "—";
+  const s = Math.round(totalSeconds);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) return `${h}h ${m}m ${sec}s`;
+  if (m > 0) return `${m}m ${sec}s`;
+  return `${sec}s`;
+}
+
+/** Wall-clock sitting time plus summed per-question active time. */
+export function attemptTiming(attempt: {
+  startedAt?: Date | string | null;
+  submittedAt?: Date | string | null;
+  finalizedAt?: Date | string | null;
+  expiresAt?: Date | string | null;
+  timeBudgetSeconds?: number | null;
+  answers?: { timeSpentMs: number }[];
+  integrityEvents?: { type: string }[];
+}) {
+  const startedAt = attempt.startedAt ? new Date(attempt.startedAt) : null;
+  const endedRaw = attempt.submittedAt ?? attempt.finalizedAt ?? null;
+  const endedAt = endedRaw ? new Date(endedRaw) : null;
+  const wallSeconds =
+    startedAt && endedAt ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000)) : null;
+  const activeAnswerSeconds = Math.round(
+    (attempt.answers ?? []).reduce((sum, a) => sum + (a.timeSpentMs || 0), 0) / 1000,
+  );
+  const questionsAnswered = (attempt.answers ?? []).filter(
+    (a) =>
+      (a as { selectedKeys?: string[]; textResponse?: string | null }).selectedKeys?.length ||
+      (a as { textResponse?: string | null }).textResponse?.trim() ||
+      (a as { sequence?: unknown }).sequence ||
+      (a as { matchPairs?: unknown }).matchPairs,
+  ).length;
+  return {
+    startedAt: startedAt?.toISOString() ?? null,
+    submittedAt: endedAt?.toISOString() ?? null,
+    expiresAt: attempt.expiresAt ? new Date(attempt.expiresAt).toISOString() : null,
+    timeBudgetSeconds: attempt.timeBudgetSeconds ?? null,
+    wallClockSeconds: wallSeconds,
+    wallClockLabel: formatDuration(wallSeconds),
+    activeAnswerSeconds,
+    activeAnswerLabel: formatDuration(activeAnswerSeconds),
+    questionsAnswered,
+    integrityEventCount: attempt.integrityEvents?.length ?? 0,
+  };
+}
+
+function optionCatalog(q: FullResult["attempt"]["questions"][number]) {
+  const snap = (q.snapshot ?? {}) as { options?: { key: string; body: string; isCorrect?: boolean }[] };
+  const live = q.question.options ?? [];
+  const rows = live.length
+    ? live.map((o) => ({ key: o.key, body: o.body, isCorrect: o.isCorrect }))
+    : (snap.options ?? []).map((o) => ({ key: o.key, body: o.body, isCorrect: !!o.isCorrect }));
+  return rows;
+}
+
+function correctAnswerText(q: FullResult["attempt"]["questions"][number]) {
+  const rows = optionCatalog(q);
+  const correct = rows.filter((o) => o.isCorrect);
+  if (correct.length) return correct.map((o) => `${o.key}. ${o.body}`).join("\n");
+  return "—";
+}
+
+function allOptionsText(q: FullResult["attempt"]["questions"][number]) {
+  const rows = optionCatalog(q);
+  if (!rows.length) return "—";
+  return rows.map((o) => `${o.key}${o.isCorrect ? "*" : ""}. ${o.body}`).join("\n");
+}
+
 export async function buildResultExcel(attemptId: string) {
   const r = await loadResult(attemptId);
   const { passing, label } = passFail(r);
   const n = narrative(r);
   const answers = answerLookup(r);
   const evaluations = evaluationLookup(r);
+  const timing = attemptTiming(r.attempt);
   const wb = new ExcelJS.Workbook();
   wb.creator = "SEAL Claude Mastery";
   wb.created = new Date();
@@ -114,6 +187,13 @@ export async function buildResultExcel(attemptId: string) {
     ["Username / Employee ID", r.attempt.trainee.employeeId],
     ["Assessment", r.attempt.assignment?.template?.name ?? "—"],
     ["Target level", r.attempt.assignment?.template?.targetLevel ?? "—"],
+    ["Attempt started", timing.startedAt ? new Date(timing.startedAt).toLocaleString() : "—"],
+    ["Attempt submitted", timing.submittedAt ? new Date(timing.submittedAt).toLocaleString() : "—"],
+    ["Time taken (wall clock)", timing.wallClockLabel],
+    ["Active answering time", timing.activeAnswerLabel],
+    ["Time budget", timing.timeBudgetSeconds != null ? formatDuration(timing.timeBudgetSeconds) : "—"],
+    ["Questions answered", `${timing.questionsAnswered} / ${r.attempt.questions.length}`],
+    ["Integrity events", timing.integrityEventCount],
     ["Recorded at", new Date(r.createdAt).toLocaleString()],
     ["Outcome", label],
     ["Overall score", Number(r.overallScore.toFixed(2))],
@@ -134,7 +214,7 @@ export async function buildResultExcel(attemptId: string) {
       row.getCell(1).font = { bold: true };
     }
   });
-  summary.getCell("B8").font = { bold: true, color: { argb: label === "PASS" ? "FF059669" : "FFDC2626" } };
+  summary.getCell("B14").font = { bold: true, color: { argb: label === "PASS" ? "FF059669" : "FFDC2626" } };
 
   const scores = wb.addWorksheet("Domain Scores");
   scores.columns = [{ header: "Domain", width: 24 }, { header: "Score", width: 14 }];
@@ -198,13 +278,17 @@ export async function buildResultExcel(attemptId: string) {
     { header: "Difficulty", width: 14 },
     { header: "Question", width: 50 },
     { header: "Scenario", width: 40 },
-    { header: "Response", width: 30 },
+    { header: "All options (* = correct)", width: 46 },
+    { header: "Correct answer", width: 36 },
+    { header: "Selected keys", width: 14 },
+    { header: "Trainee response", width: 36 },
     { header: "Correct?", width: 10 },
     { header: "Points", width: 10 },
     { header: "Max", width: 8 },
     { header: "Time (s)", width: 10 },
     { header: "Flagged", width: 10 },
     { header: "AI eval", width: 10 },
+    { header: "Last saved", width: 22 },
   ];
   for (const q of r.attempt.questions) {
     const snap = snapshotText(q.snapshot);
@@ -217,6 +301,9 @@ export async function buildResultExcel(attemptId: string) {
       q.assignedDifficulty.replaceAll("_", " "),
       snap.questionText || q.question.questionText,
       snap.scenario || q.question.scenario || "",
+      allOptionsText(q),
+      correctAnswerText(q),
+      ans?.selectedKeys?.length ? ans.selectedKeys.join(", ") : "—",
       recordedResponse(q, ans),
       ans?.isCorrect == null ? "—" : ans.isCorrect ? "Yes" : "No",
       ans?.pointsAwarded == null ? "—" : Number(ans.pointsAwarded.toFixed(2)),
@@ -224,6 +311,7 @@ export async function buildResultExcel(attemptId: string) {
       ans ? Math.round(ans.timeSpentMs / 1000) : "—",
       ans?.flagged ? "Yes" : "No",
       ev?.overall == null ? "—" : Number(ev.overall.toFixed(2)),
+      ans?.lastSavedAt ? new Date(ans.lastSavedAt).toLocaleString() : "—",
     ]);
   }
   styleHeader(items);
@@ -255,6 +343,7 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
   const { passing, label } = passFail(r);
   const n = narrative(r);
   const answers = answerLookup(r);
+  const timing = attemptTiming(r.attempt);
 
   const doc = new PDFDocument({ margin: 48, size: "A4", info: { Title: `SEAL Result — ${traineeName(r)}`, Author: "SEAL Claude Mastery" } });
   const chunks: Buffer[] = [];
@@ -274,6 +363,14 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
   doc.fontSize(12).fillColor("#1d1d1f").text(traineeName(r), { continued: false });
   doc.fontSize(10).fillColor("#636366").text(r.attempt.assignment?.template?.name ?? "Assessment", { continued: false });
   doc.text(`Recorded ${new Date(r.createdAt).toLocaleString()}`, { continued: false });
+  doc.text(
+    `Started ${timing.startedAt ? new Date(timing.startedAt).toLocaleString() : "—"}  ·  Submitted ${
+      timing.submittedAt ? new Date(timing.submittedAt).toLocaleString() : "—"
+    }`,
+  );
+  doc.text(
+    `Time taken ${timing.wallClockLabel}  ·  Active answering ${timing.activeAnswerLabel}  ·  ${timing.questionsAnswered}/${r.attempt.questions.length} answered  ·  ${timing.integrityEventCount} integrity events`,
+  );
   doc.moveDown(0.8);
 
   // Pass / Fail box
@@ -347,8 +444,12 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
       width: 500,
     });
     doc.fontSize(9).fillColor("#86868b").text(
-      `${snap.moduleCode || q.question.module?.code || "—"} · ${q.assignedDifficulty.replaceAll("_", " ")} · ${correct} · ${pts}`,
+      `${snap.moduleCode || q.question.module?.code || "—"} · ${q.assignedDifficulty.replaceAll("_", " ")} · ${correct} · ${pts} · ${
+        ans ? `${Math.round(ans.timeSpentMs / 1000)}s` : "—"
+      }`,
     );
+    doc.fontSize(9).fillColor("#1d1d1f").text(`Options: ${allOptionsText(q)}`, { width: 500 });
+    doc.fontSize(9).fillColor("#1d1d1f").text(`Correct answer: ${correctAnswerText(q)}`, { width: 500 });
     doc.fontSize(9).fillColor("#1d1d1f").text(`Response: ${recordedResponse(q, ans)}`, { width: 500 });
     if (snap.scenario) {
       doc.fontSize(9).fillColor("#636366").text(`Scenario: ${snap.scenario.slice(0, 280)}${snap.scenario.length > 280 ? "…" : ""}`);
@@ -397,6 +498,8 @@ export async function buildResultsListExcel() {
       attempt: {
         include: {
           trainee: true,
+          answers: { select: { timeSpentMs: true, selectedKeys: true, textResponse: true, sequence: true, matchPairs: true } },
+          integrityEvents: { select: { type: true } },
           assignment: { include: { template: { select: { name: true, passingScore: true, targetLevel: true } } } },
         },
       },
@@ -413,6 +516,10 @@ export async function buildResultsListExcel() {
     { header: "Assessment", width: 32 },
     { header: "Level", width: 14 },
     { header: "Date", width: 14 },
+    { header: "Started", width: 22 },
+    { header: "Submitted", width: 22 },
+    { header: "Time taken", width: 14 },
+    { header: "Active answering", width: 16 },
     { header: "Outcome", width: 10 },
     { header: "Score", width: 10 },
     { header: "Threshold", width: 12 },
@@ -421,16 +528,22 @@ export async function buildResultsListExcel() {
     { header: "Claude Code", width: 12 },
     { header: "Security", width: 12 },
     { header: "Architecture", width: 12 },
+    { header: "Integrity events", width: 14 },
   ];
   for (const r of rows) {
     const passing = r.attempt.assignment?.template?.passingScore ?? 70;
     const passed = r.overallScore >= passing;
+    const timing = attemptTiming(r.attempt);
     sheet.addRow([
       `${r.attempt.trainee.firstName} ${r.attempt.trainee.lastName}`,
       r.attempt.trainee.employeeId,
       r.attempt.assignment?.template?.name ?? "—",
       r.attempt.assignment?.template?.targetLevel ?? "—",
       new Date(r.createdAt).toLocaleDateString(),
+      timing.startedAt ? new Date(timing.startedAt).toLocaleString() : "—",
+      timing.submittedAt ? new Date(timing.submittedAt).toLocaleString() : "—",
+      timing.wallClockLabel,
+      timing.activeAnswerLabel,
       passed ? "PASS" : "FAIL",
       Number(r.overallScore.toFixed(2)),
       passing,
@@ -439,6 +552,7 @@ export async function buildResultsListExcel() {
       Number(r.claudeCodeScore.toFixed(1)),
       Number(r.securityScore.toFixed(1)),
       Number(r.architectureScore.toFixed(1)),
+      timing.integrityEventCount,
     ]);
   }
   styleHeader(sheet);

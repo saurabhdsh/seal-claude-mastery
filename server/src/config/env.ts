@@ -26,7 +26,7 @@ const schema = z.object({
   REDIS_URL: z.string().default("redis://localhost:6379"),
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
-  JWT_ACCESS_TTL: z.string().default("15m"),
+  JWT_ACCESS_TTL: z.string().default("3h"),
   JWT_REFRESH_TTL: z.string().default("7d"),
   ANTHROPIC_API_KEY: z.string().optional().default(""),
   ANTHROPIC_MODEL: z.string().default("claude-sonnet-4-6"),

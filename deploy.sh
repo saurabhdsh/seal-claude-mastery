@@ -43,7 +43,7 @@ REDIS_URL=redis://redis:6379
 
 JWT_ACCESS_SECRET=${JWT_ACCESS}
 JWT_REFRESH_SECRET=${JWT_REFRESH}
-JWT_ACCESS_TTL=15m
+JWT_ACCESS_TTL=3h
 JWT_REFRESH_TTL=7d
 
 # AWS Bedrock — uses EC2 IAM role (WeaveEC2BedrockRole), no keys needed

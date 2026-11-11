@@ -26,6 +26,11 @@ async function refreshAccess() {
   return refreshing;
 }
 
+/** Proactively renew the access token so idle assessment sittings do not drop. */
+export async function keepSessionAlive() {
+  return refreshAccess();
+}
+
 export async function downloadFile(path: string, fallbackName: string) {
   const headers = new Headers();
   const token = getToken();

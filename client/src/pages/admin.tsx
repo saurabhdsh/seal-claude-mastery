@@ -537,17 +537,34 @@ export function TraineeDetailPage() {
                 <div key={att.id} className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg bg-[var(--bg-muted)]/50 px-3 py-2">
                   <span className="text-xs">
                     Attempt · {att.status.replaceAll("_", " ")}
-                    {att.submittedAt && ` · ${new Date(att.submittedAt).toLocaleString()}`}
+                    {att.startedAt && ` · started ${new Date(att.startedAt).toLocaleString()}`}
+                    {att.submittedAt && ` · submitted ${new Date(att.submittedAt).toLocaleString()}`}
+                    {att.startedAt && att.submittedAt
+                      ? ` · ${Math.max(0, Math.round((new Date(att.submittedAt).getTime() - new Date(att.startedAt).getTime()) / 60000))} min`
+                      : ""}
                   </span>
-                  {att.result ? (
-                    <Link to={`/admin/results/${att.id}`} className="text-coral">
-                      {att.result.overallScore.toFixed(1)} · {att.result.proficiencyBand.replaceAll("_", " ")}
-                    </Link>
-                  ) : att.status === "COMPLETED" ? (
-                    <Link to={`/admin/results/${att.id}`} className="text-coral">
-                      View result
-                    </Link>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {att.result ? (
+                      <Link to={`/admin/results/${att.id}`} className="text-coral">
+                        {att.result.overallScore.toFixed(1)} · {att.result.proficiencyBand.replaceAll("_", " ")}
+                      </Link>
+                    ) : att.status === "COMPLETED" ? (
+                      <Link to={`/admin/results/${att.id}`} className="text-coral">
+                        View result
+                      </Link>
+                    ) : null}
+                    {(att.result || att.status === "COMPLETED") && (
+                      <button
+                        type="button"
+                        className="text-xs text-[var(--ink-muted)] underline-offset-2 hover:text-coral hover:underline"
+                        onClick={() =>
+                          void downloadFile(`/api/admin/results/${att.id}/export.xlsx`, `SEAL_Result_${att.id}.xlsx`)
+                        }
+                      >
+                        Export Q&A
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </li>
@@ -1282,6 +1299,7 @@ export function ResultsPage() {
       {q.data?.map((r) => {
         const passing = r.attempt?.assignment?.template?.passingScore ?? 70;
         const passed = r.overallScore >= passing;
+        const timing = r.timing;
         return (
           <Link key={r.id} to={`/admin/results/${r.attemptId}`} className="block rounded-2xl border border-[var(--line)] p-4 hover:border-coral">
             <div className="flex items-center justify-between gap-4">
@@ -1291,6 +1309,7 @@ export function ResultsPage() {
                 </div>
                 <div className="mt-0.5 text-xs text-[var(--ink-muted)]">
                   {r.attempt?.assignment?.template?.name ?? "Assessment"} · {new Date(r.createdAt).toLocaleDateString()}
+                  {timing?.wallClockLabel && timing.wallClockLabel !== "—" ? ` · ${timing.wallClockLabel}` : ""}
                 </div>
               </div>
               <div className="flex items-center gap-3 shrink-0">
@@ -1337,6 +1356,7 @@ export function ResultDetailPage() {
   const r = q.data;
   const passing = r.attempt?.assignment?.template?.passingScore ?? 70;
   const passed = r.overallScore >= passing;
+  const timing = r.timing ?? {};
 
   const exportResult = async (kind: "pdf" | "xlsx") => {
     setExportError(null);
@@ -1369,7 +1389,7 @@ export function ResultDetailPage() {
               {exporting === "pdf" ? "Preparing PDF…" : "Export PDF"}
             </Button>
             <Button variant="ghost" disabled={!!exporting} onClick={() => void exportResult("xlsx")}>
-              {exporting === "xlsx" ? "Preparing Excel…" : "Export Excel"}
+              {exporting === "xlsx" ? "Preparing Excel (Q&A)…" : "Export Excel (Q&A)"}
             </Button>
           </div>
           {exportError && (
@@ -1394,6 +1414,36 @@ export function ResultDetailPage() {
           </div>
         </div>
       </header>
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Time taken</div>
+          <div className="mt-1 text-lg tabular">{timing.wallClockLabel ?? "—"}</div>
+          <div className="mt-1 text-xs text-[var(--ink-muted)]">
+            Started {timing.startedAt ? new Date(timing.startedAt).toLocaleString() : "—"}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Active answering</div>
+          <div className="mt-1 text-lg tabular">{timing.activeAnswerLabel ?? "—"}</div>
+          <div className="mt-1 text-xs text-[var(--ink-muted)]">
+            Submitted {timing.submittedAt ? new Date(timing.submittedAt).toLocaleString() : "—"}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Answered</div>
+          <div className="mt-1 text-lg tabular">
+            {timing.questionsAnswered ?? 0} / {(r.attempt.questions ?? []).length}
+          </div>
+          <div className="mt-1 text-xs text-[var(--ink-muted)]">
+            Budget {timing.timeBudgetSeconds != null ? `${Math.round(timing.timeBudgetSeconds / 60)} min` : "—"}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Integrity log</div>
+          <div className="mt-1 text-lg tabular">{timing.integrityEventCount ?? r.attempt.integrityEvents?.length ?? 0}</div>
+          <div className="mt-1 text-xs text-[var(--ink-muted)]">Blur / tab / copy events</div>
+        </div>
+      </section>
       <ResultProfile result={r} passingScore={passing} />
       <section className="space-y-3">
         <h2 className="text-sm text-[var(--ink-muted)]">Recorded responses</h2>
@@ -1401,15 +1451,35 @@ export function ResultDetailPage() {
           .sort((a: any, b: any) => a.position - b.position)
           .map((item: any) => {
             const ans = (r.attempt.answers ?? []).find((a: any) => a.questionId === item.questionId);
+            const options = item.question?.options?.length ? item.question.options : item.snapshot?.options ?? [];
+            const correctOpts = options.filter((o: any) => o.isCorrect);
             return (
               <article key={item.id} className="rounded-2xl border border-[var(--line)] p-4">
                 <div className="text-xs text-[var(--ink-muted)]">
                   Q{item.position + 1} · {item.question?.module?.code ?? "—"} ·{" "}
                   {ans?.isCorrect == null ? "—" : ans.isCorrect ? "Correct" : "Incorrect"}
+                  {ans ? ` · ${Math.round((ans.timeSpentMs ?? 0) / 1000)}s` : ""}
                 </div>
-                <p className="mt-2 text-sm leading-6">{item.question?.questionText}</p>
+                <p className="mt-2 text-sm leading-6">{item.question?.questionText ?? item.snapshot?.questionText}</p>
+                {options.length > 0 && (
+                  <ul className="mt-3 space-y-1 text-sm text-[var(--ink-muted)]">
+                    {options.map((o: any) => (
+                      <li key={o.key}>
+                        <span className={o.isCorrect ? "text-emerald-400" : undefined}>
+                          {o.key}{o.isCorrect ? "*" : ""}. {o.body}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {correctOpts.length > 0 && (
+                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
+                    <span className="font-medium">Correct: </span>
+                    {correctOpts.map((o: any) => `${o.key}. ${o.body}`).join("\n")}
+                  </p>
+                )}
                 <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
-                  <span className="font-medium">Response: </span>
+                  <span className="font-medium">Trainee response: </span>
                   {formatRecordedResponse(item, ans)}
                 </p>
               </article>

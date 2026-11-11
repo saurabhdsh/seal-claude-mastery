@@ -6,8 +6,20 @@ import { env } from "../../config/env.js";
 import { prisma } from "../../lib/prisma.js";
 import { forbidden, locked, unauthorized, badRequest } from "../../lib/errors.js";
 
-const ACCESS_TTL_SEC = 15 * 60;
-const REFRESH_TTL_SEC = 7 * 24 * 60 * 60;
+function ttlToSeconds(raw: string, fallbackSec: number) {
+  const m = /^(\d+)([smhd])$/i.exec(String(raw).trim());
+  if (!m) return fallbackSec;
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  if (unit === "s") return n;
+  if (unit === "m") return n * 60;
+  if (unit === "h") return n * 3600;
+  if (unit === "d") return n * 86400;
+  return fallbackSec;
+}
+
+export const ACCESS_TTL_SEC = ttlToSeconds(env.JWT_ACCESS_TTL, 3 * 60 * 60);
+const REFRESH_TTL_SEC = ttlToSeconds(env.JWT_REFRESH_TTL, 7 * 24 * 60 * 60);
 const MAX_FAILURES = 5;
 const LOCK_MS = 15 * 60 * 1000;
 

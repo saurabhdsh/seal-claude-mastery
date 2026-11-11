@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../lib/api";
+import { api, keepSessionAlive } from "../lib/api";
 import { useAuth } from "../stores/auth";
 import { Button, ErrorState, LevelBadge, Skeleton } from "../components/ui";
 import { AutosaveIndicator, ProgressRail, Timer } from "../components/media";
@@ -192,12 +192,28 @@ export function SessionPage() {
       .catch(() => nav(`/assessment/complete/${attemptId}`));
   }, [remaining, attemptId, nav, submitting]);
 
+  // Keep auth alive for the full 120-minute sitting even if the trainee sits idle.
   useEffect(() => {
-    const ping = (type: string, payload?: unknown) =>
+    void keepSessionAlive();
+    const beat = window.setInterval(() => {
+      void keepSessionAlive();
+    }, 4 * 60 * 1000);
+    return () => window.clearInterval(beat);
+  }, [attemptId]);
+
+  useEffect(() => {
+    const lastSent = new Map<string, number>();
+    const ping = (type: string, payload?: unknown) => {
+      const now = Date.now();
+      // Debounce focus/blur spam so idle alt-tabbing cannot flood auth/rate limits.
+      const minGap = type === "COPY" || type === "PASTE" ? 2000 : 12000;
+      if ((lastSent.get(type) ?? 0) + minGap > now) return;
+      lastSent.set(type, now);
       api(`/api/assessment/attempts/${attemptId}/integrity`, {
         method: "POST",
         body: JSON.stringify({ type, payload, clientTs: new Date().toISOString() }),
       }).catch(() => undefined);
+    };
     const onBlur = () => ping("WINDOW_BLUR");
     const onVis = () => ping(document.hidden ? "TAB_SWITCH" : "FOCUS_RETURN");
     const onCopy = () => ping("COPY");

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma.js";
-import { login, rotateRefresh, revokeRefresh, refreshCookie, signAccess } from "../services/auth/authService.js";
+import { login, rotateRefresh, revokeRefresh, refreshCookie, signAccess, ACCESS_TTL_SEC } from "../services/auth/authService.js";
 import { validate } from "../middleware/error.js";
 import { requireAuth } from "../middleware/auth.js";
 import { audit } from "../lib/audit.js";
@@ -68,7 +68,7 @@ authRouter.post("/refresh", async (req, res, next) => {
     if (!token) return res.status(401).json({ error: "No refresh token", code: "UNAUTHORIZED" });
     const rotated = await rotateRefresh(token, { ip: req.ip, userAgent: req.get("user-agent") ?? undefined });
     res.cookie(refreshCookie.name, rotated.refreshToken, refreshCookie.options);
-    res.json({ accessToken: rotated.accessToken, expiresIn: 15 * 60 });
+    res.json({ accessToken: rotated.accessToken, expiresIn: ACCESS_TTL_SEC });
   } catch (e) {
     next(e);
   }
