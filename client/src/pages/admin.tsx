@@ -448,6 +448,18 @@ export function TraineeDetailPage() {
       setResetOpen(false);
     },
   });
+  const allowRetake = useMutation({
+    mutationFn: (assignmentId: string) =>
+      api<{ ok: boolean; maxAttempts: number; message?: string }>(`/api/admin/trainees/${id}/reset-attempt`, {
+        method: "POST",
+        body: JSON.stringify({ assignmentId, extendDays: 30 }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["trainee", id] });
+      qc.invalidateQueries({ queryKey: ["trainees"] });
+      qc.invalidateQueries({ queryKey: ["assessments"] });
+    },
+  });
   if (q.isLoading) return <Skeleton className="h-64" />;
   if (q.error) return <ErrorState error={q.error} />;
   const t = q.data;
@@ -510,6 +522,12 @@ export function TraineeDetailPage() {
         </div>
       )}
       {assign.error && <ErrorState error={assign.error} />}
+      {allowRetake.error && <ErrorState error={allowRetake.error} />}
+      {allowRetake.isSuccess && (
+        <div className="max-w-xl rounded-2xl border border-emerald-500/30 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Sitting reopened. Previous results stay on file. Trainee can Begin again.
+        </div>
+      )}
       <h2 className="text-sm uppercase tracking-[0.14em] text-[var(--ink-muted)]">Assessment history</h2>
       {t.assignments.length === 0 && (
         <EmptyState title="No assessments assigned" body="Pick an assessment above to send this trainee a sitting." />
@@ -517,6 +535,12 @@ export function TraineeDetailPage() {
       <ul className="space-y-2">
         {t.assignments.map((a: any) => {
           const latest = a.attempts[0];
+          const consumed = (a.attempts ?? []).filter((att: any) =>
+            ["COMPLETED", "LOCKED", "SUBMITTED", "EVALUATING"].includes(att.status),
+          ).length;
+          const canRetake =
+            (user?.role === "SUPER_ADMIN" || user?.role === "ADMIN") &&
+            (a.status === "COMPLETED" || consumed >= a.maxAttempts || latest?.status === "COMPLETED");
           return (
             <li key={a.id} className="rounded-xl border border-[var(--line)] p-4 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -526,9 +550,29 @@ export function TraineeDetailPage() {
                   </Link>
                   <div className="mt-1 text-xs text-[var(--ink-muted)]">
                     Expires {new Date(a.expiresAt).toLocaleDateString()} · {a.maxAttempts} attempt{a.maxAttempts === 1 ? "" : "s"} allowed
+                    {consumed > 0 ? ` · ${consumed} used` : ""}
                   </div>
                 </div>
-                <AssignmentStatusBadge status={a.status} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <AssignmentStatusBadge status={a.status} />
+                  {canRetake && (
+                    <Button
+                      variant="soft"
+                      disabled={allowRetake.isPending}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "Allow this trainee another sitting? Previous scores and Q&A stay on file.",
+                          )
+                        ) {
+                          allowRetake.mutate(a.id);
+                        }
+                      }}
+                    >
+                      {allowRetake.isPending ? "Reopening…" : "Allow retake"}
+                    </Button>
+                  )}
+                </div>
               </div>
               {a.attempts.length === 0 && (
                 <p className="mt-2 text-xs text-[var(--ink-muted)]">Not started yet — trainee will see this after login.</p>
@@ -1111,6 +1155,20 @@ export function AssessmentDetailPage() {
       ]);
     },
   });
+  const allowRetake = useMutation({
+    mutationFn: (asg: { id: string; traineeId: string }) =>
+      api(`/api/admin/trainees/${asg.traineeId}/reset-attempt`, {
+        method: "POST",
+        body: JSON.stringify({ assignmentId: asg.id, extendDays: 30 }),
+      }),
+    onSuccess: async () => {
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["assessment", id] }),
+        qc.invalidateQueries({ queryKey: ["assessments"] }),
+        qc.invalidateQueries({ queryKey: ["trainees"] }),
+      ]);
+    },
+  });
 
   if (q.isLoading) return <Skeleton className="h-64" />;
   if (q.error) return <ErrorState error={q.error} />;
@@ -1213,9 +1271,15 @@ export function AssessmentDetailPage() {
         {a.assignments.length === 0 && (
           <EmptyState title="Nobody assigned yet" body="Use the form above to send this sitting to a trainee." />
         )}
+        {allowRetake.error && <ErrorState error={allowRetake.error} />}
         <ul className="divide-y divide-[var(--line)] rounded-2xl border border-[var(--line)]">
           {a.assignments.map((asg: any) => {
             const latest = asg.attempts[0];
+            const consumed = (asg.attempts ?? []).filter((att: any) =>
+              ["COMPLETED", "LOCKED", "SUBMITTED", "EVALUATING"].includes(att.status),
+            ).length;
+            const canRetake =
+              asg.status === "COMPLETED" || consumed >= asg.maxAttempts || latest?.status === "COMPLETED";
             return (
               <li key={asg.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 text-sm">
                 <div>
@@ -1223,7 +1287,8 @@ export function AssessmentDetailPage() {
                     {asg.trainee.firstName} {asg.trainee.lastName}
                   </Link>
                   <div className="mt-1 text-xs text-[var(--ink-muted)]">
-                    {asg.trainee.user.email} · expires {new Date(asg.expiresAt).toLocaleDateString()}
+                    {asg.trainee.user.email} · expires {new Date(asg.expiresAt).toLocaleDateString()} ·{" "}
+                    {asg.maxAttempts} attempt{asg.maxAttempts === 1 ? "" : "s"}
                   </div>
                   {latest && (
                     <div className="mt-1 text-xs">
@@ -1232,12 +1297,29 @@ export function AssessmentDetailPage() {
                     </div>
                   )}
                 </div>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
                   <AssignmentStatusBadge status={asg.status} />
                   {latest?.result && (
                     <Link to={`/admin/results/${latest.id}`} className="text-coral">
                       View result
                     </Link>
+                  )}
+                  {canRetake && (
+                    <Button
+                      variant="soft"
+                      disabled={allowRetake.isPending}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Allow ${asg.trainee.firstName} another sitting? Previous results stay on file.`,
+                          )
+                        ) {
+                          allowRetake.mutate({ id: asg.id, traineeId: asg.traineeId });
+                        }
+                      }}
+                    >
+                      {allowRetake.isPending ? "Reopening…" : "Allow retake"}
+                    </Button>
                   )}
                 </div>
               </li>

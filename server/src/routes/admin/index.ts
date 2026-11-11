@@ -440,31 +440,63 @@ adminRouter.post("/trainees/:id/reset-password", requirePermission("admin.traine
   }
 });
 
-adminRouter.post("/trainees/:id/reset-attempt", requirePermission("admin.trainees.write"), async (req, res, next) => {
-  try {
-    const assignmentId = String(req.body.assignmentId ?? "");
-    const asg = await prisma.assessmentAssignment.findUnique({ where: { id: assignmentId } });
-    if (!asg || asg.traineeId !== req.params.id) throw notFound();
-    await prisma.assessmentAttempt.updateMany({
-      where: { assignmentId, status: { in: ["IN_PROGRESS", "PENDING"] } },
-      data: { status: "LOCKED" },
-    });
-    await prisma.assessmentAssignment.update({
-      where: { id: assignmentId },
-      data: { status: AssignmentStatus.ACTIVE, maxAttempts: { increment: 1 } },
-    });
-    await audit({
-      actorId: req.user!.id,
-      action: "assessment.reset",
-      resourceType: "AssessmentAssignment",
-      resourceId: assignmentId,
-      req,
-    });
-    res.json({ ok: true });
-  } catch (e) {
-    next(e);
-  }
-});
+adminRouter.post(
+  "/trainees/:id/reset-attempt",
+  requirePermission("admin.trainees.write"),
+  validate(z.object({ assignmentId: z.string().min(1), extendDays: z.number().int().min(1).max(90).optional() })),
+  async (req, res, next) => {
+    try {
+      const assignmentId = String(req.body.assignmentId);
+      const extendDays = Number(req.body.extendDays ?? 30);
+      const asg = await prisma.assessmentAssignment.findUnique({
+        where: { id: assignmentId },
+        include: { attempts: { select: { id: true, status: true } } },
+      });
+      if (!asg || asg.traineeId !== req.params.id) throw notFound();
+
+      // Close any stuck open sitting so Begin can start a fresh paper.
+      await prisma.assessmentAttempt.updateMany({
+        where: { assignmentId, status: { in: ["IN_PROGRESS", "PENDING", "EXPIRED"] } },
+        data: { status: "LOCKED" },
+      });
+
+      const windowEnd = new Date(Date.now() + extendDays * 86400000);
+      const expiresAt = asg.expiresAt > windowEnd ? asg.expiresAt : windowEnd;
+      const updated = await prisma.assessmentAssignment.update({
+        where: { id: assignmentId },
+        data: {
+          status: AssignmentStatus.ACTIVE,
+          maxAttempts: { increment: 1 },
+          expiresAt,
+        },
+      });
+
+      await audit({
+        actorId: req.user!.id,
+        action: "assessment.reset",
+        resourceType: "AssessmentAssignment",
+        resourceId: assignmentId,
+        before: { maxAttempts: asg.maxAttempts, status: asg.status, expiresAt: asg.expiresAt },
+        after: {
+          maxAttempts: updated.maxAttempts,
+          status: updated.status,
+          expiresAt: updated.expiresAt,
+          priorAttempts: asg.attempts.length,
+        },
+        req,
+      });
+      res.json({
+        ok: true,
+        assignmentId: updated.id,
+        maxAttempts: updated.maxAttempts,
+        expiresAt: updated.expiresAt,
+        message: "Sitting reopened. Previous results are kept. Trainee can Begin again.",
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 adminRouter.post(
   "/trainees/:id/assign",
