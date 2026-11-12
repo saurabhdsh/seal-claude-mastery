@@ -1415,11 +1415,28 @@ export function ResultsPage() {
   );
 }
 
+/** Prefer attempt snapshot options (shuffled letters) over live bank options. */
+function sittingOptionsForAdmin(item: any) {
+  const snap = item?.snapshot ?? {};
+  const correctKeys = new Set((snap.correctKeys ?? []).map((k: string) => String(k)));
+  if (Array.isArray(snap.options) && snap.options.length) {
+    return snap.options.map((o: any) => ({
+      key: o.key,
+      body: o.body,
+      isCorrect: correctKeys.size ? correctKeys.has(o.key) : !!o.isCorrect,
+    }));
+  }
+  return (item.question?.options ?? []).map((o: any) => ({
+    key: o.key,
+    body: o.body,
+    isCorrect: !!o.isCorrect,
+  }));
+}
+
 function formatRecordedResponse(item: any, ans: any) {
   if (!ans) return "No response recorded";
   if (typeof ans.textResponse === "string" && ans.textResponse.trim()) return ans.textResponse.trim();
-  const options = item.question?.options ?? item.snapshot?.options ?? [];
-  const body = new Map(options.map((o: any) => [o.key, o.body]));
+  const body = new Map(sittingOptionsForAdmin(item).map((o: any) => [o.key, o.body]));
   if (Array.isArray(ans.selectedKeys) && ans.selectedKeys.length) {
     return ans.selectedKeys.map((key: string) => (body.get(key) ? `${key}. ${body.get(key)}` : key)).join("\n");
   }
@@ -1533,16 +1550,19 @@ export function ResultDetailPage() {
           .sort((a: any, b: any) => a.position - b.position)
           .map((item: any) => {
             const ans = (r.attempt.answers ?? []).find((a: any) => a.questionId === item.questionId);
-            const options = item.question?.options?.length ? item.question.options : item.snapshot?.options ?? [];
+            const options = sittingOptionsForAdmin(item);
             const correctOpts = options.filter((o: any) => o.isCorrect);
             return (
               <article key={item.id} className="rounded-2xl border border-[var(--line)] p-4">
                 <div className="text-xs text-[var(--ink-muted)]">
-                  Q{item.position + 1} · {item.question?.module?.code ?? "—"} ·{" "}
+                  Q{item.position + 1} · {item.question?.module?.code ?? item.snapshot?.moduleCode ?? "—"} ·{" "}
                   {ans?.isCorrect == null ? "—" : ans.isCorrect ? "Correct" : "Incorrect"}
                   {ans ? ` · ${Math.round((ans.timeSpentMs ?? 0) / 1000)}s` : ""}
+                  {ans?.pointsAwarded != null && ans?.maxPoints != null
+                    ? ` · ${Number(ans.pointsAwarded).toFixed(1)}/${Number(ans.maxPoints).toFixed(1)}`
+                    : ""}
                 </div>
-                <p className="mt-2 text-sm leading-6">{item.question?.questionText ?? item.snapshot?.questionText}</p>
+                <p className="mt-2 text-sm leading-6">{item.snapshot?.questionText ?? item.question?.questionText}</p>
                 {options.length > 0 && (
                   <ul className="mt-3 space-y-1 text-sm text-[var(--ink-muted)]">
                     {options.map((o: any) => (

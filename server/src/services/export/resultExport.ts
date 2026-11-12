@@ -77,11 +77,32 @@ function snapshotText(snapshot: unknown) {
   };
 }
 
-function optionBodies(q: FullResult["attempt"]["questions"][number]) {
-  const snap = (q.snapshot ?? {}) as { options?: { key: string; body: string }[] };
+/**
+ * Options/keys as the trainee saw them (shuffled + remapped).
+ * Never prefer live bank options — those keep pre-shuffle letters and make
+ * Correct/Incorrect look contradictory in exports.
+ */
+function sittingOptions(q: FullResult["attempt"]["questions"][number]) {
+  const snap = (q.snapshot ?? {}) as {
+    options?: { key: string; body: string; isCorrect?: boolean }[];
+    correctKeys?: string[];
+  };
+  const correctKeys = new Set(
+    (snap.correctKeys ?? []).map((k) => String(k).trim()).filter(Boolean),
+  );
+  if (snap.options?.length) {
+    return snap.options.map((o) => ({
+      key: o.key,
+      body: o.body,
+      isCorrect: correctKeys.size ? correctKeys.has(o.key) : !!o.isCorrect,
+    }));
+  }
   const live = q.question.options ?? [];
-  const rows = live.length ? live : snap.options ?? [];
-  return new Map(rows.map((o) => [o.key, o.body]));
+  return live.map((o) => ({ key: o.key, body: o.body, isCorrect: o.isCorrect }));
+}
+
+function optionBodies(q: FullResult["attempt"]["questions"][number]) {
+  return new Map(sittingOptions(q).map((o) => [o.key, o.body]));
 }
 
 function recordedResponse(q: FullResult["attempt"]["questions"][number], answer: FullResult["attempt"]["answers"][number] | undefined) {
@@ -146,24 +167,14 @@ export function attemptTiming(attempt: {
   };
 }
 
-function optionCatalog(q: FullResult["attempt"]["questions"][number]) {
-  const snap = (q.snapshot ?? {}) as { options?: { key: string; body: string; isCorrect?: boolean }[] };
-  const live = q.question.options ?? [];
-  const rows = live.length
-    ? live.map((o) => ({ key: o.key, body: o.body, isCorrect: o.isCorrect }))
-    : (snap.options ?? []).map((o) => ({ key: o.key, body: o.body, isCorrect: !!o.isCorrect }));
-  return rows;
-}
-
 function correctAnswerText(q: FullResult["attempt"]["questions"][number]) {
-  const rows = optionCatalog(q);
-  const correct = rows.filter((o) => o.isCorrect);
-  if (correct.length) return correct.map((o) => `${o.key}. ${o.body}`).join("\n");
+  const rows = sittingOptions(q).filter((o) => o.isCorrect);
+  if (rows.length) return rows.map((o) => `${o.key}. ${o.body}`).join("\n");
   return "—";
 }
 
 function allOptionsText(q: FullResult["attempt"]["questions"][number]) {
-  const rows = optionCatalog(q);
+  const rows = sittingOptions(q);
   if (!rows.length) return "—";
   return rows.map((o) => `${o.key}${o.isCorrect ? "*" : ""}. ${o.body}`).join("\n");
 }
