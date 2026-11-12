@@ -319,7 +319,13 @@ export async function buildResultExcel(attemptId: string) {
       correctAnswerText(q),
       ans?.selectedKeys?.length ? ans.selectedKeys.join(", ") : "—",
       recordedResponse(q, ans),
-      ans?.isCorrect == null ? "—" : ans.isCorrect ? "Yes" : "No",
+      ans?.isCorrect == null
+        ? "—"
+        : ans.isCorrect
+          ? "Yes"
+          : recordedResponse(q, ans) === "No response recorded"
+            ? "No (no response)"
+            : "No",
       ans?.pointsAwarded == null ? "—" : Number(ans.pointsAwarded.toFixed(2)),
       ans?.maxPoints == null ? "—" : Number(ans.maxPoints.toFixed(2)),
       ans ? Math.round(ans.timeSpentMs / 1000) : "—",
@@ -327,6 +333,11 @@ export async function buildResultExcel(attemptId: string) {
       ev?.overall == null ? "—" : Number(ev.overall.toFixed(2)),
       ans?.lastSavedAt ? new Date(ans.lastSavedAt).toLocaleString() : "—",
     ]);
+    const row = items.lastRow;
+    if (row && (ans?.isCorrect === false || recordedResponse(q, ans) === "No response recorded")) {
+      row.getCell(11).font = { color: { argb: "FFDC2626" }, bold: true };
+      row.getCell(10).font = { color: { argb: "FFDC2626" } };
+    }
   }
   styleHeader(items);
 
@@ -458,27 +469,41 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
 
   ensureSpace(doc, 120);
   section(doc, "Question-level detail");
+  const unansweredCount = r.attempt.questions.filter((q) => {
+    const ans = answers.get(q.questionId);
+    return !ans || (!(ans.selectedKeys?.length) && !ans.textResponse?.trim() && !ans.sequence && !ans.matchPairs);
+  }).length;
+  const incorrectCount = r.attempt.questions.filter((q) => answers.get(q.questionId)?.isCorrect === false).length;
+  doc.fontSize(9).fillColor("#DC2626").text(
+    `Incorrect ${incorrectCount} (includes unanswered / no response: ${unansweredCount}). Unanswered objective items score 0 and count as Incorrect.`,
+  );
+  doc.moveDown(0.4);
   for (const q of r.attempt.questions) {
     ensureSpace(doc, 70);
     const snap = snapshotText(q.snapshot);
     const ans = answers.get(q.questionId);
+    const response = recordedResponse(q, ans);
+    const noResponse = response === "No response recorded";
     const correct =
-      ans?.isCorrect == null ? "—" : ans.isCorrect ? "Correct" : "Incorrect";
+      ans?.isCorrect == null ? "—" : ans.isCorrect ? "Correct" : noResponse ? "Incorrect (no response)" : "Incorrect";
     const pts =
       ans?.pointsAwarded != null && ans?.maxPoints != null
         ? `${ans.pointsAwarded.toFixed(1)}/${ans.maxPoints.toFixed(1)}`
         : "—";
+    const statusColor = ans?.isCorrect === false || noResponse ? "#DC2626" : ans?.isCorrect === true ? "#059669" : "#1d1d1f";
     doc.fontSize(10).fillColor("#1d1d1f").text(`Q${q.position + 1}. ${snap.questionText || q.question.questionText}`, {
       width: 500,
     });
-    doc.fontSize(9).fillColor("#86868b").text(
+    doc.fontSize(9).fillColor(statusColor).text(
       `${snap.moduleCode || q.question.module?.code || "—"} · ${q.assignedDifficulty.replaceAll("_", " ")} · ${correct} · ${pts} · ${
         ans ? `${Math.round(ans.timeSpentMs / 1000)}s` : "—"
       }`,
     );
     doc.fontSize(9).fillColor("#1d1d1f").text(`Options: ${allOptionsText(q)}`, { width: 500 });
     doc.fontSize(9).fillColor("#1d1d1f").text(`Correct answer: ${correctAnswerText(q)}`, { width: 500 });
-    doc.fontSize(9).fillColor("#1d1d1f").text(`Response: ${recordedResponse(q, ans)}`, { width: 500 });
+    doc.fontSize(9).fillColor(noResponse || ans?.isCorrect === false ? "#DC2626" : "#1d1d1f").text(`Response: ${response}`, {
+      width: 500,
+    });
     if (snap.scenario) {
       doc.fontSize(9).fillColor("#636366").text(`Scenario: ${snap.scenario.slice(0, 280)}${snap.scenario.length > 280 ? "…" : ""}`);
     }

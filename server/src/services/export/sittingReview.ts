@@ -90,9 +90,18 @@ export function presentSittingItem(params: {
   const selectedKeys = normKeys(params.answer?.selectedKeys);
   const bodies = new Map(options.map((o) => [o.key, o.body]));
   const correctOpts = options.filter((o) => o.isCorrect);
+  const noResponse = (() => {
+    const ans = params.answer;
+    if (!ans) return true;
+    if (ans.textResponse?.trim()) return false;
+    if (selectedKeys.length) return false;
+    if (ans.sequence) return false;
+    if (ans.matchPairs) return false;
+    return true;
+  })();
   const responseText = (() => {
     const ans = params.answer;
-    if (!ans) return "No response recorded";
+    if (!ans || noResponse) return "No response recorded";
     if (ans.textResponse?.trim()) return ans.textResponse.trim();
     if (selectedKeys.length) {
       return selectedKeys.map((key) => (bodies.get(key) ? `${key}. ${bodies.get(key)}` : key)).join("\n");
@@ -143,6 +152,7 @@ export function presentSittingItem(params: {
       ? correctOpts.map((o) => `${o.key}. ${o.body}`).join("\n")
       : "—",
     responseText,
+    noResponse,
     displayIsCorrect,
     storedIsCorrect: stored ?? null,
     markMismatch,

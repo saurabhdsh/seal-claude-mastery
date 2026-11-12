@@ -1222,11 +1222,22 @@ adminRouter.get("/results/:attemptId", requirePermission("admin.results.read"), 
     const keyCorrect = review.filter((r) => r.displayIsCorrect === true).length;
     const keyIncorrect = review.filter((r) => r.displayIsCorrect === false).length;
     const keyUnscored = review.filter((r) => r.displayIsCorrect == null).length;
+    const noResponse = review.filter((r) => r.noResponse).length;
+    const incorrectNoResponse = review.filter((r) => r.displayIsCorrect === false && r.noResponse).length;
+    const incorrectWrongAnswer = review.filter((r) => r.displayIsCorrect === false && !r.noResponse).length;
     res.json({
       ...result,
       timing: attemptTiming(result.attempt),
       review,
-      reviewSummary: { keyCorrect, keyIncorrect, keyUnscored, markMismatches },
+      reviewSummary: {
+        keyCorrect,
+        keyIncorrect,
+        keyUnscored,
+        markMismatches,
+        noResponse,
+        incorrectNoResponse,
+        incorrectWrongAnswer,
+      },
     });
   } catch (e) {
     next(e);

@@ -1646,13 +1646,21 @@ export function ResultDetailPage() {
           Graded against the shuffled letters the trainee saw — not the question-bank letter order.
         </p>
         <div className="mt-2 flex flex-wrap gap-4 text-xs">
-          <span>Correct {summary.keyCorrect}</span>
-          <span>Incorrect {summary.keyIncorrect}</span>
+          <span className="text-emerald-700">Correct {summary.keyCorrect}</span>
+          <span className="text-red-600">
+            Incorrect {summary.keyIncorrect}
+            {summary.incorrectNoResponse != null
+              ? ` (${summary.incorrectNoResponse} no response, ${summary.incorrectWrongAnswer ?? 0} wrong answer)`
+              : ""}
+          </span>
           <span>Unscored {summary.keyUnscored}</span>
           {summary.markMismatches > 0 && (
             <span className="text-amber-700">{summary.markMismatches} stored mark(s) disagree — use Re-score</span>
           )}
         </div>
+        <p className="mt-2 text-xs text-[var(--ink-muted)]">
+          “No response recorded” counts as Incorrect (0 points). It is included in the Incorrect total.
+        </p>
       </section>
       <section className="space-y-3">
         <h2 className="text-sm text-[var(--ink-muted)]">Recorded responses</h2>
@@ -1663,6 +1671,7 @@ export function ResultDetailPage() {
               .map((item: any) => {
                 const ans = (r.attempt.answers ?? []).find((a: any) => a.questionId === item.questionId);
                 const options = sittingOptionsForAdmin(item);
+                const responseText = formatRecordedResponse(item, ans);
                 return {
                   position: item.position,
                   moduleCode: item.question?.module?.code ?? item.snapshot?.moduleCode ?? "—",
@@ -1671,7 +1680,8 @@ export function ResultDetailPage() {
                   correctKeys: options.filter((o: any) => o.isCorrect).map((o: any) => o.key),
                   selectedKeys: ans?.selectedKeys ?? [],
                   correctText: options.filter((o: any) => o.isCorrect).map((o: any) => `${o.key}. ${o.body}`).join("\n") || "—",
-                  responseText: formatRecordedResponse(item, ans),
+                  responseText,
+                  noResponse: responseText === "No response recorded",
                   displayIsCorrect: ans?.isCorrect ?? null,
                   markMismatch: false,
                   pointsAwarded: ans?.pointsAwarded ?? null,
@@ -1679,17 +1689,31 @@ export function ResultDetailPage() {
                   timeSpentMs: ans?.timeSpentMs ?? null,
                 };
               })
-        ).map((item: any) => (
-          <article key={item.position} className="rounded-2xl border border-[var(--line)] p-4">
-            <div className="text-xs text-[var(--ink-muted)]">
+        ).map((item: any) => {
+          const isIncorrect = item.displayIsCorrect === false || item.noResponse;
+          const isCorrect = item.displayIsCorrect === true && !item.noResponse;
+          return (
+          <article
+            key={item.position}
+            className={`rounded-2xl border p-4 ${
+              isIncorrect
+                ? "border-red-500/40 bg-red-500/5"
+                : isCorrect
+                  ? "border-emerald-500/30 bg-emerald-500/5"
+                  : "border-[var(--line)]"
+            }`}
+          >
+            <div className={`text-xs ${isIncorrect ? "text-red-700" : "text-[var(--ink-muted)]"}`}>
               Q{item.position + 1} · {item.moduleCode} ·{" "}
               {item.pendingWritten
                 ? "Pending AI eval"
-                : item.displayIsCorrect == null
-                  ? "—"
-                  : item.displayIsCorrect
-                    ? "Correct"
-                    : "Incorrect"}
+                : item.noResponse && item.displayIsCorrect === false
+                  ? "Incorrect (no response)"
+                  : item.displayIsCorrect == null
+                    ? "—"
+                    : item.displayIsCorrect
+                      ? "Correct"
+                      : "Incorrect"}
               {item.timeSpentMs != null ? ` · ${Math.round(item.timeSpentMs / 1000)}s` : ""}
               {item.maxPoints != null
                 ? ` · ${item.pointsAwarded == null ? "—" : Number(item.pointsAwarded).toFixed(1)}/${Number(item.maxPoints).toFixed(1)}`
@@ -1703,7 +1727,7 @@ export function ResultDetailPage() {
               <ul className="mt-3 space-y-1 text-sm text-[var(--ink-muted)]">
                 {item.options.map((o: any) => (
                   <li key={o.key}>
-                    <span className={o.isCorrect ? "text-emerald-400" : undefined}>
+                    <span className={o.isCorrect ? "text-emerald-600" : undefined}>
                       {o.key}
                       {o.isCorrect ? "*" : ""}. {o.body}
                     </span>
@@ -1717,12 +1741,13 @@ export function ResultDetailPage() {
                 {item.correctText}
               </p>
             )}
-            <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
+            <p className={`mt-3 whitespace-pre-wrap text-sm leading-6 ${isIncorrect ? "text-red-700" : ""}`}>
               <span className="font-medium">Trainee response: </span>
               {item.responseText}
             </p>
           </article>
-        ))}
+          );
+        })}
       </section>
       <section>
         <h2 className="mb-2 text-sm text-[var(--ink-muted)]">Integrity timeline</h2>
