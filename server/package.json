@@ -22,7 +22,8 @@
     "validate:question-bank": "tsx src/scripts/validateQuestionBank.ts",
     "regress:assessment": "tsx src/scripts/regressAssessmentQuality.ts",
     "refresh:seed-questions": "tsx src/scripts/refreshSeedQuestionBank.ts",
-    "recalculate:analytics": "tsx src/scripts/recalculateAnalytics.ts"
+    "recalculate:analytics": "tsx src/scripts/recalculateAnalytics.ts",
+    "rescore:all-results": "tsx src/scripts/rescoreAllResults.ts"
   },
   "prisma": {
     "seed": "tsx src/seed/index.ts"

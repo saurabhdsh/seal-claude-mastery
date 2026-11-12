@@ -1352,32 +1352,63 @@ export function AssessmentDetailPage() {
 }
 
 export function ResultsPage() {
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: ["results"], queryFn: () => api<any[]>("/api/admin/results") });
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const rebuildAll = useMutation({
+    mutationFn: () =>
+      api<{ ok: boolean; count: number }>("/api/admin/results/rescore-all", { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["results"] });
+    },
+  });
   return (
     <div className="space-y-4">
-      <div className="flex items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <h1 className="font-serif text-4xl">Results</h1>
-        <Button
-          variant="ghost"
-          disabled={exporting || !q.data?.length}
-          onClick={async () => {
-            setExportError(null);
-            setExporting(true);
-            try {
-              await downloadFile("/api/admin/results/export.xlsx", "SEAL_All_Results.xlsx");
-            } catch (err) {
-              setExportError(err instanceof Error ? err.message : "Export failed");
-            } finally {
-              setExporting(false);
-            }
-          }}
-        >
-          {exporting ? "Exporting…" : "Export all to Excel"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            variant="soft"
+            disabled={rebuildAll.isPending || !q.data?.length}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Rebuild scores for every completed sitting? This re-grades MCQs from sitting keys and retries written AI evaluation.",
+                )
+              ) {
+                rebuildAll.mutate();
+              }
+            }}
+          >
+            {rebuildAll.isPending ? "Rebuilding all…" : "Rebuild all scores"}
+          </Button>
+          <Button
+            variant="ghost"
+            disabled={exporting || !q.data?.length}
+            onClick={async () => {
+              setExportError(null);
+              setExporting(true);
+              try {
+                await downloadFile("/api/admin/results/export.xlsx", "SEAL_All_Results.xlsx");
+              } catch (err) {
+                setExportError(err instanceof Error ? err.message : "Export failed");
+              } finally {
+                setExporting(false);
+              }
+            }}
+          >
+            {exporting ? "Exporting…" : "Export all to Excel"}
+          </Button>
+        </div>
       </div>
       {exportError && <ErrorState error={new Error(exportError)} />}
+      {rebuildAll.error && <ErrorState error={rebuildAll.error} />}
+      {rebuildAll.isSuccess && (
+        <p className="text-sm text-emerald-700">
+          Rebuilt {rebuildAll.data.count} completed sitting{rebuildAll.data.count === 1 ? "" : "s"}.
+        </p>
+      )}
       {q.data?.map((r) => {
         const passing = r.attempt?.assignment?.template?.passingScore ?? 70;
         const passed = r.overallScore >= passing;

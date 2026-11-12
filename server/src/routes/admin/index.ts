@@ -33,8 +33,7 @@ import { getPlatformAccess, setPlatformAccess } from "../../services/platform/ac
 import { practiceLog } from "../../services/platform/practiceClock.js";
 import { attemptTiming, buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
 import { presentSittingItem } from "../../services/export/sittingReview.js";
-import { finalizeAttemptScoring } from "../../services/scoring/finalize.js";
-import { isObjective, scoreObjective } from "../../services/scoring/engine.js";
+import { rescoreAttempt } from "../../services/scoring/rescoreAttempt.js";
 import { buildPracticeLogExcel, buildTraineesExcel } from "../../services/export/rosterExport.js";
 
 /** Unused non-live drafts that can be deleted before regenerating (keeps APPROVED / RETIRED). */
@@ -1126,6 +1125,45 @@ adminRouter.get("/results/export.xlsx", requirePermission("admin.results.read"),
   }
 });
 
+/** Rebuild every completed sitting with current scoring rules. */
+adminRouter.post("/results/rescore-all", requirePermission("admin.trainees.write"), async (req, res, next) => {
+  try {
+    const { rescoreAllCompletedAttempts } = await import("../../services/scoring/rescoreAttempt.js");
+    const rows = await rescoreAllCompletedAttempts({ actorId: req.user!.id, retryWritten: true });
+    await audit({
+      actorId: req.user!.id,
+      action: "assessment.rescore_all",
+      resourceType: "AssessmentResult",
+      after: {
+        count: rows.length,
+        scores: rows.map((r) => ({
+          attemptId: r.attemptId,
+          name: r.name,
+          before: r.before,
+          after: r.overallScore,
+          pendingWritten: r.writtenPending,
+        })),
+      },
+      req,
+    });
+    res.json({
+      ok: true,
+      count: rows.length,
+      rows: rows.map((r) => ({
+        attemptId: r.attemptId,
+        name: r.name,
+        before: r.before,
+        overallScore: r.overallScore,
+        writtenRetried: r.writtenRetried,
+        writtenScored: r.writtenScored,
+        writtenPending: r.writtenPending,
+      })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 adminRouter.get("/results/:attemptId/export.xlsx", requirePermission("admin.results.read"), async (req, res, next) => {
   try {
     const file = await buildResultExcel(req.params.attemptId);
@@ -1195,107 +1233,21 @@ adminRouter.get("/results/:attemptId", requirePermission("admin.results.read"), 
   }
 });
 
-/** Re-grade objective items from sitting snapshots, retry written AI eval, rebuild result. */
+/** Re-grade one sitting (objective keys + written AI eval) and rebuild the result. */
 adminRouter.post("/results/:attemptId/rescore", requirePermission("admin.trainees.write"), async (req, res, next) => {
   try {
-    const { evaluateWrittenAnswer } = await import("../../services/ai/answerEvaluator.js");
-    const attempt = await prisma.assessmentAttempt.findUnique({
-      where: { id: req.params.attemptId },
-      include: {
-        answers: true,
-        questions: { include: { question: true } },
-        result: true,
-      },
-    });
-    if (!attempt?.result) throw notFound("Result not found");
-
-    let changed = 0;
-    let writtenRetried = 0;
-    for (const aq of attempt.questions) {
-      const q = aq.question;
-      const answer = attempt.answers.find((a) => a.questionId === q.id);
-      if (isObjective(q.questionType)) {
-        const snap = aq.snapshot as { correctKeys?: string[] } | null;
-        const correctAnswer =
-          Array.isArray(snap?.correctKeys) && snap!.correctKeys!.length > 0
-            ? { keys: snap!.correctKeys }
-            : q.correctAnswer;
-        const scored = scoreObjective({
-          type: q.questionType,
-          correctAnswer,
-          selectedKeys: answer?.selectedKeys ?? [],
-          sequence: answer?.sequence,
-          matchPairs: answer?.matchPairs,
-          maxPoints: q.maxPoints,
-          difficultyWeight: q.difficultyWeight,
-        });
-        const maxPoints = q.maxPoints * q.difficultyWeight;
-        if (
-          answer &&
-          (answer.isCorrect !== scored.isCorrect ||
-            Number(answer.pointsAwarded ?? 0) !== scored.points ||
-            Number(answer.maxPoints ?? 0) !== maxPoints)
-        ) {
-          changed += 1;
-        }
-        await prisma.answer.upsert({
-          where: { attemptId_questionId: { attemptId: attempt.id, questionId: q.id } },
-          create: {
-            attemptId: attempt.id,
-            questionId: q.id,
-            attemptQuestionId: aq.id,
-            selectedKeys: answer?.selectedKeys ?? [],
-            isCorrect: scored.isCorrect,
-            pointsAwarded: scored.points,
-            maxPoints,
-          },
-          update: {
-            isCorrect: scored.isCorrect,
-            pointsAwarded: scored.points,
-            maxPoints,
-          },
-        });
-      } else if (answer?.textResponse?.trim()) {
-        writtenRetried += 1;
-        await evaluateWrittenAnswer({
-          attemptId: attempt.id,
-          questionId: q.id,
-          actorId: req.user!.id,
-        });
-        changed += 1;
-      } else if (!isObjective(q.questionType)) {
-        const maxPoints = q.maxPoints * q.difficultyWeight;
-        await prisma.answer.upsert({
-          where: { attemptId_questionId: { attemptId: attempt.id, questionId: q.id } },
-          create: {
-            attemptId: attempt.id,
-            questionId: q.id,
-            attemptQuestionId: aq.id,
-            pointsAwarded: 0,
-            maxPoints,
-            isCorrect: false,
-          },
-          update: { pointsAwarded: 0, maxPoints, isCorrect: false },
-        });
-      }
-    }
-
-    const scored = await finalizeAttemptScoring(attempt.id);
+    const exists = await prisma.assessmentResult.findUnique({ where: { attemptId: req.params.attemptId } });
+    if (!exists) throw notFound("Result not found");
+    const scored = await rescoreAttempt(req.params.attemptId, { actorId: req.user!.id, retryWritten: true });
     await audit({
       actorId: req.user!.id,
       action: "assessment.rescore",
       resourceType: "AssessmentAttempt",
-      resourceId: attempt.id,
-      after: { changed, writtenRetried, overallScore: scored?.overallScore },
+      resourceId: req.params.attemptId,
+      after: scored,
       req,
     });
-    res.json({
-      ok: true,
-      changed,
-      writtenRetried,
-      overallScore: scored?.overallScore ?? null,
-      levelMastery: scored?.levelMastery ?? null,
-    });
+    res.json({ ok: true, ...scored });
   } catch (e) {
     next(e);
   }
