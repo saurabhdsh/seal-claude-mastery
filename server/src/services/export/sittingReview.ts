@@ -114,14 +114,26 @@ export function presentSittingItem(params: {
   });
 
   const stored = params.answer?.isCorrect;
-  const displayIsCorrect =
-    keyGrade.isCorrect == null ? (stored ?? null) : keyGrade.isCorrect;
+  const isWritten = String(params.question.questionType) === "SHORT_RESPONSE";
+  const fullMax =
+    params.answer?.maxPoints ?? params.question.maxPoints * params.question.difficultyWeight;
+  const pendingWritten =
+    isWritten && !!params.answer?.textResponse?.trim() && params.answer?.pointsAwarded == null;
+  const displayIsCorrect = pendingWritten
+    ? null
+    : keyGrade.isCorrect == null
+      ? (stored ?? null)
+      : keyGrade.isCorrect;
   const markMismatch =
-    keyGrade.isCorrect != null && stored != null && keyGrade.isCorrect !== stored;
+    !pendingWritten &&
+    keyGrade.isCorrect != null &&
+    stored != null &&
+    keyGrade.isCorrect !== stored;
 
   return {
     position: params.position,
     moduleCode: snap.moduleCode ?? params.question.module?.code ?? "—",
+    questionType: params.question.questionType,
     questionText: snap.questionText ?? params.question.questionText,
     scenario: snap.scenario ?? null,
     options,
@@ -135,8 +147,9 @@ export function presentSittingItem(params: {
     storedIsCorrect: stored ?? null,
     markMismatch,
     keyGradeIsCorrect: keyGrade.isCorrect,
+    pendingWritten,
     pointsAwarded: params.answer?.pointsAwarded ?? null,
-    maxPoints: params.answer?.maxPoints ?? null,
+    maxPoints: fullMax,
     timeSpentMs: params.answer?.timeSpentMs ?? null,
   };
 }

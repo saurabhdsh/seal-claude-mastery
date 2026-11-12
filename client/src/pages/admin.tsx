@@ -1581,6 +1581,34 @@ export function ResultDetailPage() {
         </div>
       </section>
       <ResultProfile result={r} passingScore={passing} />
+      {(() => {
+        const lm = (r.levelMastery ?? {}) as Record<string, any>;
+        return (
+          <section className="rounded-2xl border border-[var(--line)] px-4 py-3 text-sm">
+            <div className="font-medium">Score composition</div>
+            <p className="mt-1 text-[var(--ink-muted)]">
+              Overall is points earned ÷ points possible. The capstone written item is heavily weighted
+              (about 14 × difficulty), so a blank or pending written answer can FAIL a sitting even when
+              most MCQs are correct.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-4 text-xs">
+              {lm.objectiveScore != null && <span>MCQ {Number(lm.objectiveScore).toFixed(1)}%</span>}
+              {lm.writtenScore != null && <span>Written {Number(lm.writtenScore).toFixed(1)}%</span>}
+              {lm.earnedPoints != null && lm.possiblePoints != null && (
+                <span>
+                  Points {lm.earnedPoints}/{lm.possiblePoints}
+                </span>
+              )}
+              {Number(lm.pendingWrittenCount ?? 0) > 0 && (
+                <span className="text-amber-700">
+                  {lm.pendingWrittenCount} written pending AI eval (max {lm.pendingWrittenMaxPoints} pts) —
+                  use Re-score from keys
+                </span>
+              )}
+            </div>
+          </section>
+        );
+      })()}
       <section className="rounded-2xl border border-[var(--line)] px-4 py-3 text-sm">
         <div className="font-medium">Sitting key check</div>
         <p className="mt-1 text-[var(--ink-muted)]">
@@ -1624,10 +1652,16 @@ export function ResultDetailPage() {
           <article key={item.position} className="rounded-2xl border border-[var(--line)] p-4">
             <div className="text-xs text-[var(--ink-muted)]">
               Q{item.position + 1} · {item.moduleCode} ·{" "}
-              {item.displayIsCorrect == null ? "—" : item.displayIsCorrect ? "Correct" : "Incorrect"}
+              {item.pendingWritten
+                ? "Pending AI eval"
+                : item.displayIsCorrect == null
+                  ? "—"
+                  : item.displayIsCorrect
+                    ? "Correct"
+                    : "Incorrect"}
               {item.timeSpentMs != null ? ` · ${Math.round(item.timeSpentMs / 1000)}s` : ""}
-              {item.pointsAwarded != null && item.maxPoints != null
-                ? ` · ${Number(item.pointsAwarded).toFixed(1)}/${Number(item.maxPoints).toFixed(1)}`
+              {item.maxPoints != null
+                ? ` · ${item.pointsAwarded == null ? "—" : Number(item.pointsAwarded).toFixed(1)}/${Number(item.maxPoints).toFixed(1)}`
                 : ""}
               {item.selectedKeys?.length ? ` · selected ${item.selectedKeys.join(",")}` : ""}
               {item.correctKeys?.length ? ` · key ${item.correctKeys.join(",")}` : ""}

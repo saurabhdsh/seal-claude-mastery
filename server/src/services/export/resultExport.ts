@@ -189,6 +189,19 @@ export async function buildResultExcel(attemptId: string) {
     ["Recorded at", new Date(r.createdAt).toLocaleString()],
     ["Outcome", label],
     ["Overall score", Number(r.overallScore.toFixed(2))],
+    [
+      "Score composition",
+      (() => {
+        const lm = (r.levelMastery ?? {}) as Record<string, unknown>;
+        const obj = lm.objectiveScore != null ? `MCQ ${Number(lm.objectiveScore).toFixed(1)}%` : null;
+        const wr = lm.writtenScore != null ? `Written ${Number(lm.writtenScore).toFixed(1)}%` : null;
+        const pending =
+          Number(lm.pendingWrittenCount ?? 0) > 0
+            ? `${lm.pendingWrittenCount} written pending (max ${lm.pendingWrittenMaxPoints})`
+            : null;
+        return [obj, wr, pending].filter(Boolean).join(" · ") || "—";
+      })(),
+    ],
     ["Passing threshold", `${passing}%`],
     ["Proficiency band", r.proficiencyBand.replaceAll("_", " ")],
     ["Confidence", `${Math.round(r.confidence * 100)}%`],
@@ -206,7 +219,16 @@ export async function buildResultExcel(attemptId: string) {
       row.getCell(1).font = { bold: true };
     }
   });
-  summary.getCell("B14").font = { bold: true, color: { argb: label === "PASS" ? "FF059669" : "FFDC2626" } };
+  // Outcome row shifts if composition is inserted; style the Outcome value cell.
+  for (let i = 1; i <= summary.rowCount; i++) {
+    if (String(summary.getRow(i).getCell(1).value) === "Outcome") {
+      summary.getRow(i).getCell(2).font = {
+        bold: true,
+        color: { argb: label === "PASS" ? "FF059669" : "FFDC2626" },
+      };
+      break;
+    }
+  }
 
   const scores = wb.addWorksheet("Domain Scores");
   scores.columns = [{ header: "Domain", width: 24 }, { header: "Score", width: 14 }];
@@ -363,6 +385,20 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
   doc.text(
     `Time taken ${timing.wallClockLabel}  ·  Active answering ${timing.activeAnswerLabel}  ·  ${timing.questionsAnswered}/${r.attempt.questions.length} answered  ·  ${timing.integrityEventCount} integrity events`,
   );
+  {
+    const lm = (r.levelMastery ?? {}) as Record<string, unknown>;
+    const bits = [
+      lm.objectiveScore != null ? `MCQ ${Number(lm.objectiveScore).toFixed(1)}%` : null,
+      lm.writtenScore != null ? `Written ${Number(lm.writtenScore).toFixed(1)}%` : null,
+      Number(lm.pendingWrittenCount ?? 0) > 0
+        ? `${lm.pendingWrittenCount} written item(s) pending AI eval (max ${lm.pendingWrittenMaxPoints} pts)`
+        : null,
+      lm.earnedPoints != null && lm.possiblePoints != null
+        ? `Points ${lm.earnedPoints}/${lm.possiblePoints}`
+        : null,
+    ].filter(Boolean);
+    if (bits.length) doc.text(bits.join("  ·  "));
+  }
   doc.moveDown(0.8);
 
   // Pass / Fail box

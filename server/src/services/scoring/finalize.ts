@@ -33,14 +33,39 @@ export async function finalizeAttemptScoring(attemptId: string) {
   const rows = attempt.questions.map((aq) => {
     const q = aq.question;
     const a = attempt.answers.find((x) => x.questionId === q.id);
-    const earned = a?.pointsAwarded ?? 0;
-    const possible = a?.maxPoints ?? q.maxPoints * q.difficultyWeight;
-    return { q, a, earned, possible, type: q.questionType };
+    const fullPossible = a?.maxPoints ?? q.maxPoints * q.difficultyWeight;
+    // Written item with text but no AI score yet must NOT silently count as 0 / full weight.
+    const pendingWritten =
+      q.questionType === "SHORT_RESPONSE" &&
+      !!a?.textResponse?.trim() &&
+      a.pointsAwarded == null;
+    const earned = pendingWritten ? 0 : (a?.pointsAwarded ?? 0);
+    const possible = pendingWritten ? 0 : fullPossible;
+    return {
+      q,
+      a,
+      earned,
+      possible,
+      fullPossible,
+      pendingWritten,
+      type: q.questionType,
+    };
   });
 
+  const pendingWritten = rows.filter((r) => r.pendingWritten);
   const earned = rows.reduce((s, r) => s + r.earned, 0);
   const possible = rows.reduce((s, r) => s + r.possible, 0);
   const overall = overallFromParts(earned, possible);
+  const objectiveRows = rows.filter((r) => r.type !== "SHORT_RESPONSE");
+  const writtenRows = rows.filter((r) => r.type === "SHORT_RESPONSE" && !r.pendingWritten);
+  const objectiveScore = overallFromParts(
+    objectiveRows.reduce((s, r) => s + r.earned, 0),
+    objectiveRows.reduce((s, r) => s + r.possible, 0),
+  );
+  const writtenScore = overallFromParts(
+    writtenRows.reduce((s, r) => s + r.earned, 0),
+    writtenRows.reduce((s, r) => s + r.possible, 0),
+  );
   const meanWeight =
     rows.reduce((s, r) => s + r.q.difficultyWeight, 0) / Math.max(1, rows.length);
 
@@ -144,6 +169,18 @@ export async function finalizeAttemptScoring(attemptId: string) {
       meanDifficultyWeight: meanWeight,
       items: rows.length,
       answered,
+      earnedPoints: Number(earned.toFixed(2)),
+      possiblePoints: Number(possible.toFixed(2)),
+      objectiveScore,
+      writtenScore,
+      pendingWrittenCount: pendingWritten.length,
+      pendingWrittenMaxPoints: Number(
+        pendingWritten.reduce((s, r) => s + r.fullPossible, 0).toFixed(2),
+      ),
+      scoreNote:
+        pendingWritten.length > 0
+          ? `${pendingWritten.length} written item(s) pending AI evaluation and excluded from the overall until scored.`
+          : undefined,
     },
     narrative,
   };

@@ -119,6 +119,15 @@ Return JSON only.`;
         rawResponse: err instanceof Error ? err.message : String(err),
       },
     });
+    // Keep pointsAwarded null so finalize excludes this item until it is scored.
+    await prisma.answer.update({
+      where: { id: answer.id },
+      data: {
+        maxPoints: question.maxPoints * question.difficultyWeight,
+        pointsAwarded: null,
+        isCorrect: null,
+      },
+    });
     return { evaluationId: evaluation.id, overall: null, reviewRequired: true };
   }
 }

@@ -1195,9 +1195,10 @@ adminRouter.get("/results/:attemptId", requirePermission("admin.results.read"), 
   }
 });
 
-/** Re-grade objective items from sitting snapshots and rebuild the result. */
+/** Re-grade objective items from sitting snapshots, retry written AI eval, rebuild result. */
 adminRouter.post("/results/:attemptId/rescore", requirePermission("admin.trainees.write"), async (req, res, next) => {
   try {
+    const { evaluateWrittenAnswer } = await import("../../services/ai/answerEvaluator.js");
     const attempt = await prisma.assessmentAttempt.findUnique({
       where: { id: req.params.attemptId },
       include: {
@@ -1209,50 +1210,74 @@ adminRouter.post("/results/:attemptId/rescore", requirePermission("admin.trainee
     if (!attempt?.result) throw notFound("Result not found");
 
     let changed = 0;
+    let writtenRetried = 0;
     for (const aq of attempt.questions) {
       const q = aq.question;
-      if (!isObjective(q.questionType)) continue;
       const answer = attempt.answers.find((a) => a.questionId === q.id);
-      const snap = aq.snapshot as { correctKeys?: string[] } | null;
-      const correctAnswer =
-        Array.isArray(snap?.correctKeys) && snap!.correctKeys!.length > 0
-          ? { keys: snap!.correctKeys }
-          : q.correctAnswer;
-      const scored = scoreObjective({
-        type: q.questionType,
-        correctAnswer,
-        selectedKeys: answer?.selectedKeys ?? [],
-        sequence: answer?.sequence,
-        matchPairs: answer?.matchPairs,
-        maxPoints: q.maxPoints,
-        difficultyWeight: q.difficultyWeight,
-      });
-      const maxPoints = q.maxPoints * q.difficultyWeight;
-      if (
-        answer &&
-        (answer.isCorrect !== scored.isCorrect ||
-          Number(answer.pointsAwarded ?? 0) !== scored.points ||
-          Number(answer.maxPoints ?? 0) !== maxPoints)
-      ) {
-        changed += 1;
-      }
-      await prisma.answer.upsert({
-        where: { attemptId_questionId: { attemptId: attempt.id, questionId: q.id } },
-        create: {
+      if (isObjective(q.questionType)) {
+        const snap = aq.snapshot as { correctKeys?: string[] } | null;
+        const correctAnswer =
+          Array.isArray(snap?.correctKeys) && snap!.correctKeys!.length > 0
+            ? { keys: snap!.correctKeys }
+            : q.correctAnswer;
+        const scored = scoreObjective({
+          type: q.questionType,
+          correctAnswer,
+          selectedKeys: answer?.selectedKeys ?? [],
+          sequence: answer?.sequence,
+          matchPairs: answer?.matchPairs,
+          maxPoints: q.maxPoints,
+          difficultyWeight: q.difficultyWeight,
+        });
+        const maxPoints = q.maxPoints * q.difficultyWeight;
+        if (
+          answer &&
+          (answer.isCorrect !== scored.isCorrect ||
+            Number(answer.pointsAwarded ?? 0) !== scored.points ||
+            Number(answer.maxPoints ?? 0) !== maxPoints)
+        ) {
+          changed += 1;
+        }
+        await prisma.answer.upsert({
+          where: { attemptId_questionId: { attemptId: attempt.id, questionId: q.id } },
+          create: {
+            attemptId: attempt.id,
+            questionId: q.id,
+            attemptQuestionId: aq.id,
+            selectedKeys: answer?.selectedKeys ?? [],
+            isCorrect: scored.isCorrect,
+            pointsAwarded: scored.points,
+            maxPoints,
+          },
+          update: {
+            isCorrect: scored.isCorrect,
+            pointsAwarded: scored.points,
+            maxPoints,
+          },
+        });
+      } else if (answer?.textResponse?.trim()) {
+        writtenRetried += 1;
+        await evaluateWrittenAnswer({
           attemptId: attempt.id,
           questionId: q.id,
-          attemptQuestionId: aq.id,
-          selectedKeys: answer?.selectedKeys ?? [],
-          isCorrect: scored.isCorrect,
-          pointsAwarded: scored.points,
-          maxPoints,
-        },
-        update: {
-          isCorrect: scored.isCorrect,
-          pointsAwarded: scored.points,
-          maxPoints,
-        },
-      });
+          actorId: req.user!.id,
+        });
+        changed += 1;
+      } else if (!isObjective(q.questionType)) {
+        const maxPoints = q.maxPoints * q.difficultyWeight;
+        await prisma.answer.upsert({
+          where: { attemptId_questionId: { attemptId: attempt.id, questionId: q.id } },
+          create: {
+            attemptId: attempt.id,
+            questionId: q.id,
+            attemptQuestionId: aq.id,
+            pointsAwarded: 0,
+            maxPoints,
+            isCorrect: false,
+          },
+          update: { pointsAwarded: 0, maxPoints, isCorrect: false },
+        });
+      }
     }
 
     const scored = await finalizeAttemptScoring(attempt.id);
@@ -1261,10 +1286,16 @@ adminRouter.post("/results/:attemptId/rescore", requirePermission("admin.trainee
       action: "assessment.rescore",
       resourceType: "AssessmentAttempt",
       resourceId: attempt.id,
-      after: { changed, overallScore: scored?.overallScore },
+      after: { changed, writtenRetried, overallScore: scored?.overallScore },
       req,
     });
-    res.json({ ok: true, changed, overallScore: scored?.overallScore ?? null });
+    res.json({
+      ok: true,
+      changed,
+      writtenRetried,
+      overallScore: scored?.overallScore ?? null,
+      levelMastery: scored?.levelMastery ?? null,
+    });
   } catch (e) {
     next(e);
   }
