@@ -7,12 +7,49 @@ import { Button, ErrorState, LevelBadge, Skeleton } from "../components/ui";
 import { AutosaveIndicator, ProgressRail, Timer } from "../components/media";
 import { hasAttempted, QuestionNavigator, QuestionRenderer } from "../components/QuestionRenderer";
 
+function attemptCounts(asg: any) {
+  const attempts = asg?.attempts ?? [];
+  const consumed = attempts.filter((a: any) =>
+    ["COMPLETED", "LOCKED", "SUBMITTED", "EVALUATING"].includes(a.status),
+  ).length;
+  const inProgress = attempts.find((a: any) => a.status === "IN_PROGRESS");
+  const completed = attempts.find((a: any) => a.status === "COMPLETED" || a.result);
+  const remaining = Math.max(0, (asg?.maxAttempts ?? 1) - consumed);
+  return { consumed, remaining, inProgress, completed };
+}
+
 export function AssessmentHome() {
   const { user, assessment } = useAuth();
   const q = useQuery({ queryKey: ["mine"], queryFn: () => api<any>("/api/assessment/mine") });
   const asg =
     q.data?.assignments?.find((a: any) => a.status === "ACTIVE") ??
     q.data?.assignments?.[0];
+  const counts = asg ? attemptCounts(asg) : null;
+  const assessmentOpen = !!asg && q.data?.access?.assessmentEnabled !== false;
+  const canStart =
+    assessmentOpen &&
+    asg?.status === "ACTIVE" &&
+    (!!counts?.inProgress || (counts?.remaining ?? 0) > 0);
+  const sittingTitle = !asg
+    ? "No sitting yet"
+    : counts?.inProgress
+      ? "Resume assessment"
+      : canStart && counts?.completed
+        ? "Retake available"
+        : canStart
+          ? "Start Assessment"
+          : "Assessment completed";
+  const sittingBody = !asg
+    ? "Your assessment manager has not assigned a sitting yet. The playground is still open."
+    : counts?.inProgress
+      ? `${asg.template?.name ?? "Your assessment"} is in progress. Continue with remaining time.`
+      : canStart && counts?.completed
+        ? `You already submitted once. ${counts.remaining} attempt${counts.remaining === 1 ? "" : "s"} left of ${asg.maxAttempts}.`
+      : canStart
+        ? `${asg.template?.name ?? "Your assigned assessment"}. Timed, scored, and recorded.`
+        : counts?.completed
+          ? "Your sitting is recorded. No attempts remain."
+          : "This sitting is closed. Practice in the playground if it is still open.";
   return (
     <div className="app-bg mx-auto min-h-screen max-w-3xl px-6 py-16">
       <div className="text-[11px] uppercase tracking-[0.22em] text-[var(--ink-muted)]">SEAL · Claude Mastery</div>
@@ -35,24 +72,25 @@ export function AssessmentHome() {
             <Button type="button" className="mt-6 w-full">Open playground</Button>
           </Link>
         )}
-        {asg && q.data?.access?.assessmentEnabled !== false ? (
+        {canStart ? (
           <Link to={`/assessment/instructions?assignment=${asg.id}`} className="flex h-full flex-col rounded-3xl border border-[var(--line)] bg-white p-6 shadow-sm transition hover:-translate-y-0.5">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Sitting</div>
-            <h2 className="mt-2 font-serif text-3xl">Start Assessment</h2>
-            <p className="mt-3 flex-1 text-sm leading-6 text-[var(--ink-muted)]">
-              {asg.template?.name ?? "Your assigned assessment"}. Timed, scored, and recorded.
-            </p>
-            <Button type="button" className="mt-6 w-full">Open assessment</Button>
+            <h2 className="mt-2 font-serif text-3xl">{sittingTitle}</h2>
+            <p className="mt-3 flex-1 text-sm leading-6 text-[var(--ink-muted)]">{sittingBody}</p>
+            <Button type="button" className="mt-6 w-full">
+              {counts?.inProgress ? "Resume assessment" : counts?.completed ? "Begin retake" : "Open assessment"}
+            </Button>
           </Link>
         ) : (
           <div className="flex h-full flex-col rounded-3xl border border-dashed border-[var(--line)] bg-white/60 p-6">
             <div className="text-[11px] uppercase tracking-[0.16em] text-[var(--ink-muted)]">Sitting</div>
-            <h2 className="mt-2 font-serif text-3xl">{asg ? "Assessment closed" : "No sitting yet"}</h2>
-            <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">
-              {asg
-                ? "A super admin has not opened the sitting yet. Practice in the playground until it opens."
-                : "Your assessment manager has not assigned a sitting yet. The playground is still open."}
-            </p>
+            <h2 className="mt-2 font-serif text-3xl">{sittingTitle}</h2>
+            <p className="mt-3 text-sm leading-6 text-[var(--ink-muted)]">{sittingBody}</p>
+            {counts?.completed && (
+              <Link to={`/assessment/complete/${counts.completed.id}`} className="mt-6">
+                <Button type="button" className="w-full">View recorded result</Button>
+              </Link>
+            )}
           </div>
         )}
       </div>
@@ -124,10 +162,17 @@ export function InstructionsPage() {
         (d.existingLevelCount ?? 0) >= 4 && (
         <p className="mt-4 text-sm text-coral">An in-progress sitting was found. You will resume with remaining time restored.</p>
       )}
-      {d.completedAttemptId && d.attemptsRemaining === 0 && (
-        <Link to={`/assessment/complete/${d.completedAttemptId}`} className="mt-6 block">
-          <Button type="button">Sitting recorded</Button>
+      <div className="mt-4 text-sm text-[var(--ink-muted)]">
+        Attempts used {d.attemptsUsed ?? 0} of {d.maxAttempts ?? 1}
+        {(d.attemptsRemaining ?? 0) > 0 ? ` · ${d.attemptsRemaining} remaining` : " · none remaining"}
+      </div>
+      {d.completedAttemptId && (
+        <Link to={`/assessment/complete/${d.completedAttemptId}`} className="mt-4 block">
+          <Button type="button" variant="ghost">View last recorded result</Button>
         </Link>
+      )}
+      {d.completedAttemptId && d.attemptsRemaining === 0 && !d.existingAttemptStatus && (
+        <p className="mt-4 text-sm text-[var(--ink-muted)]">Sitting finished. No further attempts are available.</p>
       )}
       {(d.attemptsRemaining > 0 || d.existingAttemptStatus === "IN_PROGRESS") && (
         <Button className="mt-6" disabled={!ack || start.isPending} onClick={() => start.mutate()}>
@@ -137,7 +182,9 @@ export function InstructionsPage() {
                 (d.existingQuestionCount ?? 0) >= (d.approximateQuestions ?? 40) &&
                 (d.existingLevelCount ?? 0) >= 4
               ? "Resume assessment"
-              : "Begin assessment"}
+              : d.completedAttemptId
+                ? "Begin retake"
+                : "Begin assessment"}
         </Button>
       )}
       {start.error && <div className="mt-4"><ErrorState error={start.error} /></div>}
