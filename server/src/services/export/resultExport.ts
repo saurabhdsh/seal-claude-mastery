@@ -2,6 +2,7 @@ import ExcelJS from "exceljs";
 import PDFDocument from "pdfkit";
 import { prisma } from "../../lib/prisma.js";
 import { notFound } from "../../lib/errors.js";
+import { sittingOptionsFromSnapshot } from "./sittingReview.js";
 
 type FullResult = NonNullable<Awaited<ReturnType<typeof loadResult>>>;
 
@@ -77,28 +78,8 @@ function snapshotText(snapshot: unknown) {
   };
 }
 
-/**
- * Options/keys as the trainee saw them (shuffled + remapped).
- * Never prefer live bank options — those keep pre-shuffle letters and make
- * Correct/Incorrect look contradictory in exports.
- */
 function sittingOptions(q: FullResult["attempt"]["questions"][number]) {
-  const snap = (q.snapshot ?? {}) as {
-    options?: { key: string; body: string; isCorrect?: boolean }[];
-    correctKeys?: string[];
-  };
-  const correctKeys = new Set(
-    (snap.correctKeys ?? []).map((k) => String(k).trim()).filter(Boolean),
-  );
-  if (snap.options?.length) {
-    return snap.options.map((o) => ({
-      key: o.key,
-      body: o.body,
-      isCorrect: correctKeys.size ? correctKeys.has(o.key) : !!o.isCorrect,
-    }));
-  }
-  const live = q.question.options ?? [];
-  return live.map((o) => ({ key: o.key, body: o.body, isCorrect: o.isCorrect }));
+  return sittingOptionsFromSnapshot(q.snapshot, q.question.options ?? []);
 }
 
 function optionBodies(q: FullResult["attempt"]["questions"][number]) {

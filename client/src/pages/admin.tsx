@@ -1447,15 +1447,30 @@ function formatRecordedResponse(item: any, ans: any) {
 
 export function ResultDetailPage() {
   const { attemptId } = useParams();
+  const qc = useQueryClient();
   const q = useQuery({ queryKey: ["result", attemptId], queryFn: () => api<any>(`/api/admin/results/${attemptId}`) });
   const [exporting, setExporting] = useState<"pdf" | "xlsx" | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
+  const rescore = useMutation({
+    mutationFn: () => api<{ ok: boolean; changed: number; overallScore: number | null }>(`/api/admin/results/${attemptId}/rescore`, { method: "POST" }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["result", attemptId] });
+      qc.invalidateQueries({ queryKey: ["results"] });
+    },
+  });
   if (q.isLoading) return <Skeleton className="h-64" />;
   if (q.error) return <ErrorState error={q.error} />;
   const r = q.data;
   const passing = r.attempt?.assignment?.template?.passingScore ?? 70;
   const passed = r.overallScore >= passing;
   const timing = r.timing ?? {};
+  const review: any[] = Array.isArray(r.review) ? r.review : [];
+  const summary = r.reviewSummary ?? {
+    keyCorrect: review.filter((x) => x.displayIsCorrect === true).length,
+    keyIncorrect: review.filter((x) => x.displayIsCorrect === false).length,
+    keyUnscored: review.filter((x) => x.displayIsCorrect == null).length,
+    markMismatches: review.filter((x) => x.markMismatch).length,
+  };
 
   const exportResult = async (kind: "pdf" | "xlsx") => {
     setExportError(null);
@@ -1490,11 +1505,33 @@ export function ResultDetailPage() {
             <Button variant="ghost" disabled={!!exporting} onClick={() => void exportResult("xlsx")}>
               {exporting === "xlsx" ? "Preparing Excel (Q&A)…" : "Export Excel (Q&A)"}
             </Button>
+            <Button
+              variant="soft"
+              disabled={rescore.isPending}
+              onClick={() => {
+                if (window.confirm("Re-score this sitting from the shuffled answer keys and rebuild the result?")) {
+                  rescore.mutate();
+                }
+              }}
+            >
+              {rescore.isPending ? "Re-scoring…" : "Re-score from keys"}
+            </Button>
           </div>
           {exportError && (
             <div className="mt-2">
               <ErrorState error={new Error(exportError)} />
             </div>
+          )}
+          {rescore.error && (
+            <div className="mt-2">
+              <ErrorState error={rescore.error} />
+            </div>
+          )}
+          {rescore.isSuccess && (
+            <p className="mt-2 text-sm text-emerald-700">
+              Re-scored. Updated {rescore.data.changed} item{rescore.data.changed === 1 ? "" : "s"}
+              {rescore.data.overallScore != null ? ` · new score ${rescore.data.overallScore.toFixed(1)}` : ""}.
+            </p>
           )}
         </div>
         <div
@@ -1544,49 +1581,83 @@ export function ResultDetailPage() {
         </div>
       </section>
       <ResultProfile result={r} passingScore={passing} />
+      <section className="rounded-2xl border border-[var(--line)] px-4 py-3 text-sm">
+        <div className="font-medium">Sitting key check</div>
+        <p className="mt-1 text-[var(--ink-muted)]">
+          Graded against the shuffled letters the trainee saw — not the question-bank letter order.
+        </p>
+        <div className="mt-2 flex flex-wrap gap-4 text-xs">
+          <span>Correct {summary.keyCorrect}</span>
+          <span>Incorrect {summary.keyIncorrect}</span>
+          <span>Unscored {summary.keyUnscored}</span>
+          {summary.markMismatches > 0 && (
+            <span className="text-amber-700">{summary.markMismatches} stored mark(s) disagree — use Re-score</span>
+          )}
+        </div>
+      </section>
       <section className="space-y-3">
         <h2 className="text-sm text-[var(--ink-muted)]">Recorded responses</h2>
-        {[...(r.attempt.questions ?? [])]
-          .sort((a: any, b: any) => a.position - b.position)
-          .map((item: any) => {
-            const ans = (r.attempt.answers ?? []).find((a: any) => a.questionId === item.questionId);
-            const options = sittingOptionsForAdmin(item);
-            const correctOpts = options.filter((o: any) => o.isCorrect);
-            return (
-              <article key={item.id} className="rounded-2xl border border-[var(--line)] p-4">
-                <div className="text-xs text-[var(--ink-muted)]">
-                  Q{item.position + 1} · {item.question?.module?.code ?? item.snapshot?.moduleCode ?? "—"} ·{" "}
-                  {ans?.isCorrect == null ? "—" : ans.isCorrect ? "Correct" : "Incorrect"}
-                  {ans ? ` · ${Math.round((ans.timeSpentMs ?? 0) / 1000)}s` : ""}
-                  {ans?.pointsAwarded != null && ans?.maxPoints != null
-                    ? ` · ${Number(ans.pointsAwarded).toFixed(1)}/${Number(ans.maxPoints).toFixed(1)}`
-                    : ""}
-                </div>
-                <p className="mt-2 text-sm leading-6">{item.snapshot?.questionText ?? item.question?.questionText}</p>
-                {options.length > 0 && (
-                  <ul className="mt-3 space-y-1 text-sm text-[var(--ink-muted)]">
-                    {options.map((o: any) => (
-                      <li key={o.key}>
-                        <span className={o.isCorrect ? "text-emerald-400" : undefined}>
-                          {o.key}{o.isCorrect ? "*" : ""}. {o.body}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {correctOpts.length > 0 && (
-                  <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
-                    <span className="font-medium">Correct: </span>
-                    {correctOpts.map((o: any) => `${o.key}. ${o.body}`).join("\n")}
-                  </p>
-                )}
-                <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
-                  <span className="font-medium">Trainee response: </span>
-                  {formatRecordedResponse(item, ans)}
-                </p>
-              </article>
-            );
-          })}
+        {(review.length
+          ? review
+          : [...(r.attempt.questions ?? [])]
+              .sort((a: any, b: any) => a.position - b.position)
+              .map((item: any) => {
+                const ans = (r.attempt.answers ?? []).find((a: any) => a.questionId === item.questionId);
+                const options = sittingOptionsForAdmin(item);
+                return {
+                  position: item.position,
+                  moduleCode: item.question?.module?.code ?? item.snapshot?.moduleCode ?? "—",
+                  questionText: item.snapshot?.questionText ?? item.question?.questionText,
+                  options,
+                  correctKeys: options.filter((o: any) => o.isCorrect).map((o: any) => o.key),
+                  selectedKeys: ans?.selectedKeys ?? [],
+                  correctText: options.filter((o: any) => o.isCorrect).map((o: any) => `${o.key}. ${o.body}`).join("\n") || "—",
+                  responseText: formatRecordedResponse(item, ans),
+                  displayIsCorrect: ans?.isCorrect ?? null,
+                  markMismatch: false,
+                  pointsAwarded: ans?.pointsAwarded ?? null,
+                  maxPoints: ans?.maxPoints ?? null,
+                  timeSpentMs: ans?.timeSpentMs ?? null,
+                };
+              })
+        ).map((item: any) => (
+          <article key={item.position} className="rounded-2xl border border-[var(--line)] p-4">
+            <div className="text-xs text-[var(--ink-muted)]">
+              Q{item.position + 1} · {item.moduleCode} ·{" "}
+              {item.displayIsCorrect == null ? "—" : item.displayIsCorrect ? "Correct" : "Incorrect"}
+              {item.timeSpentMs != null ? ` · ${Math.round(item.timeSpentMs / 1000)}s` : ""}
+              {item.pointsAwarded != null && item.maxPoints != null
+                ? ` · ${Number(item.pointsAwarded).toFixed(1)}/${Number(item.maxPoints).toFixed(1)}`
+                : ""}
+              {item.selectedKeys?.length ? ` · selected ${item.selectedKeys.join(",")}` : ""}
+              {item.correctKeys?.length ? ` · key ${item.correctKeys.join(",")}` : ""}
+              {item.markMismatch ? " · stored mark disagreed" : ""}
+            </div>
+            <p className="mt-2 text-sm leading-6">{item.questionText}</p>
+            {item.options?.length > 0 && (
+              <ul className="mt-3 space-y-1 text-sm text-[var(--ink-muted)]">
+                {item.options.map((o: any) => (
+                  <li key={o.key}>
+                    <span className={o.isCorrect ? "text-emerald-400" : undefined}>
+                      {o.key}
+                      {o.isCorrect ? "*" : ""}. {o.body}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {item.correctText && item.correctText !== "—" && (
+              <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
+                <span className="font-medium">Correct: </span>
+                {item.correctText}
+              </p>
+            )}
+            <p className="mt-3 whitespace-pre-wrap text-sm leading-6">
+              <span className="font-medium">Trainee response: </span>
+              {item.responseText}
+            </p>
+          </article>
+        ))}
       </section>
       <section>
         <h2 className="mb-2 text-sm text-[var(--ink-muted)]">Integrity timeline</h2>

@@ -32,6 +32,9 @@ import { computeBankStatus, isPendingReview } from "../../services/questions/ban
 import { getPlatformAccess, setPlatformAccess } from "../../services/platform/access.js";
 import { practiceLog } from "../../services/platform/practiceClock.js";
 import { attemptTiming, buildResultExcel, buildResultPdf, buildResultsListExcel } from "../../services/export/resultExport.js";
+import { presentSittingItem } from "../../services/export/sittingReview.js";
+import { finalizeAttemptScoring } from "../../services/scoring/finalize.js";
+import { isObjective, scoreObjective } from "../../services/scoring/engine.js";
 import { buildPracticeLogExcel, buildTraineesExcel } from "../../services/export/rosterExport.js";
 
 /** Unused non-live drafts that can be deleted before regenerating (keeps APPROVED / RETIRED). */
@@ -1158,14 +1161,110 @@ adminRouter.get("/results/:attemptId", requirePermission("admin.results.read"), 
             assignment: { include: { template: { select: { name: true, passingScore: true } } } },
             integrityEvents: { orderBy: { serverTs: "asc" } },
             answers: true,
-            questions: { include: { question: { include: { options: true, sources: true } } } },
+            questions: {
+              orderBy: { position: "asc" },
+              include: { question: { include: { options: true, sources: true, module: true } } },
+            },
             evaluations: true,
           },
         },
       },
     });
     if (!result) throw notFound();
-    res.json({ ...result, timing: attemptTiming(result.attempt) });
+    const review = result.attempt.questions.map((item) => {
+      const ans = result.attempt.answers.find((a) => a.questionId === item.questionId) ?? null;
+      return presentSittingItem({
+        position: item.position,
+        snapshot: item.snapshot,
+        question: item.question,
+        answer: ans,
+      });
+    });
+    const markMismatches = review.filter((r) => r.markMismatch).length;
+    const keyCorrect = review.filter((r) => r.displayIsCorrect === true).length;
+    const keyIncorrect = review.filter((r) => r.displayIsCorrect === false).length;
+    const keyUnscored = review.filter((r) => r.displayIsCorrect == null).length;
+    res.json({
+      ...result,
+      timing: attemptTiming(result.attempt),
+      review,
+      reviewSummary: { keyCorrect, keyIncorrect, keyUnscored, markMismatches },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Re-grade objective items from sitting snapshots and rebuild the result. */
+adminRouter.post("/results/:attemptId/rescore", requirePermission("admin.trainees.write"), async (req, res, next) => {
+  try {
+    const attempt = await prisma.assessmentAttempt.findUnique({
+      where: { id: req.params.attemptId },
+      include: {
+        answers: true,
+        questions: { include: { question: true } },
+        result: true,
+      },
+    });
+    if (!attempt?.result) throw notFound("Result not found");
+
+    let changed = 0;
+    for (const aq of attempt.questions) {
+      const q = aq.question;
+      if (!isObjective(q.questionType)) continue;
+      const answer = attempt.answers.find((a) => a.questionId === q.id);
+      const snap = aq.snapshot as { correctKeys?: string[] } | null;
+      const correctAnswer =
+        Array.isArray(snap?.correctKeys) && snap!.correctKeys!.length > 0
+          ? { keys: snap!.correctKeys }
+          : q.correctAnswer;
+      const scored = scoreObjective({
+        type: q.questionType,
+        correctAnswer,
+        selectedKeys: answer?.selectedKeys ?? [],
+        sequence: answer?.sequence,
+        matchPairs: answer?.matchPairs,
+        maxPoints: q.maxPoints,
+        difficultyWeight: q.difficultyWeight,
+      });
+      const maxPoints = q.maxPoints * q.difficultyWeight;
+      if (
+        answer &&
+        (answer.isCorrect !== scored.isCorrect ||
+          Number(answer.pointsAwarded ?? 0) !== scored.points ||
+          Number(answer.maxPoints ?? 0) !== maxPoints)
+      ) {
+        changed += 1;
+      }
+      await prisma.answer.upsert({
+        where: { attemptId_questionId: { attemptId: attempt.id, questionId: q.id } },
+        create: {
+          attemptId: attempt.id,
+          questionId: q.id,
+          attemptQuestionId: aq.id,
+          selectedKeys: answer?.selectedKeys ?? [],
+          isCorrect: scored.isCorrect,
+          pointsAwarded: scored.points,
+          maxPoints,
+        },
+        update: {
+          isCorrect: scored.isCorrect,
+          pointsAwarded: scored.points,
+          maxPoints,
+        },
+      });
+    }
+
+    const scored = await finalizeAttemptScoring(attempt.id);
+    await audit({
+      actorId: req.user!.id,
+      action: "assessment.rescore",
+      resourceType: "AssessmentAttempt",
+      resourceId: attempt.id,
+      after: { changed, overallScore: scored?.overallScore },
+      req,
+    });
+    res.json({ ok: true, changed, overallScore: scored?.overallScore ?? null });
   } catch (e) {
     next(e);
   }
