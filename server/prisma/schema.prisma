@@ -562,6 +562,8 @@ model Answer {
   timeSpentMs       Int               @default(0)
   flagged           Boolean           @default(false)
   lastSavedAt       DateTime          @default(now())
+  /// Client clock for the save payload; used to ignore stale overlapping writes.
+  clientSavedAt     DateTime?
   isCorrect         Boolean?
   pointsAwarded     Float?
   maxPoints         Float?

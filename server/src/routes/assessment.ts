@@ -138,10 +138,11 @@ assessmentRouter.put(
       selectedKeys: z.array(z.string()).optional(),
       matchPairs: z.record(z.string()).optional(),
       sequence: z.array(z.string()).optional(),
-      textResponse: z.string().optional(),
+      textResponse: z.string().max(100_000).optional(),
       flagged: z.boolean().optional(),
       timeSpentMs: z.number().optional(),
       currentIndex: z.number().int().optional(),
+      clientSavedAt: z.string().datetime().optional(),
     }),
   ),
   async (req, res, next) => {

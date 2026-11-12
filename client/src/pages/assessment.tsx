@@ -209,6 +209,9 @@ export function SessionPage() {
   const [answeredIds, setAnsweredIds] = useState<Set<string>>(() => new Set());
   const lastTick = useRef<Record<string, number>>({});
   const hadTime = useRef(false);
+  const saveTimers = useRef<Record<string, number>>({});
+  const saveControllers = useRef<Record<string, AbortController>>({});
+  const saveChain = useRef<Promise<void>>(Promise.resolve());
 
   useEffect(() => {
     if (session.data?.remainingSeconds != null) setRemaining(session.data.remainingSeconds);
@@ -234,9 +237,16 @@ export function SessionPage() {
     if (remaining != null && remaining > 0) hadTime.current = true;
     if (remaining !== 0 || !hadTime.current || !attemptId || submitting) return;
     setSubmitting(true);
-    api(`/api/assessment/attempts/${attemptId}/submit`, { method: "POST" })
-      .then(() => nav(`/assessment/complete/${attemptId}`))
-      .catch(() => nav(`/assessment/complete/${attemptId}`));
+    void (async () => {
+      try {
+        await flushAllSaves();
+        await api(`/api/assessment/attempts/${attemptId}/submit`, { method: "POST" });
+      } catch {
+        /* still leave the sitting */
+      } finally {
+        nav(`/assessment/complete/${attemptId}`);
+      }
+    })();
   }, [remaining, attemptId, nav, submitting]);
 
   // Keep auth alive for the full 120-minute sitting even if the trainee sits idle.
@@ -280,11 +290,7 @@ export function SessionPage() {
   const questions = session.data?.questions ?? [];
   const current = questions[index];
 
-  const persist = async (patch: any, idx = index, question = current) => {
-    if (!question) return;
-    setSave(navigator.onLine ? "saving" : "offline");
-    const spent = (lastTick.current[question.questionId] ?? 0) + 800;
-    lastTick.current[question.questionId] = spent;
+  const applyLocalAnswer = (patch: any, idx: number, question: any) => {
     const nextAnswer = { ...question.answer, ...patch };
     question.answer = nextAnswer;
     if (hasAttempted(nextAnswer)) {
@@ -312,28 +318,91 @@ export function SessionPage() {
         ),
       };
     });
+    return nextAnswer;
+  };
+
+  const persistNow = async (idx: number, question: any) => {
+    if (!question || !attemptId) return;
+    const qid = question.questionId as string;
+    saveControllers.current[qid]?.abort();
+    const ac = new AbortController();
+    saveControllers.current[qid] = ac;
+    setSave(navigator.onLine ? "saving" : "offline");
+    const spent = (lastTick.current[qid] ?? 0) + 800;
+    lastTick.current[qid] = spent;
+    const nextAnswer = question.answer ?? {};
+    const clientSavedAt = new Date().toISOString();
     try {
       await api(`/api/assessment/attempts/${attemptId}/answers`, {
         method: "PUT",
+        signal: ac.signal,
         body: JSON.stringify({
-          questionId: question.questionId,
+          questionId: qid,
           currentIndex: idx,
           timeSpentMs: spent,
           selectedKeys: nextAnswer.selectedKeys ?? [],
           matchPairs: nextAnswer.matchPairs,
           sequence: nextAnswer.sequence,
-          textResponse: nextAnswer.textResponse,
+          textResponse: nextAnswer.textResponse ?? "",
           flagged: nextAnswer.flagged,
+          clientSavedAt,
         }),
       });
-      setSave("saved");
-    } catch {
+      if (!ac.signal.aborted) setSave("saved");
+    } catch (err) {
+      if ((err as Error)?.name === "AbortError") return;
       setSave("offline");
     }
   };
 
+  const persist = (patch: any, idx = index, question = current, opts?: { flush?: boolean }) => {
+    if (!question) return Promise.resolve();
+    applyLocalAnswer(patch, idx, question);
+    const qid = question.questionId as string;
+    if (saveTimers.current[qid]) {
+      window.clearTimeout(saveTimers.current[qid]);
+      delete saveTimers.current[qid];
+    }
+    if (opts?.flush) {
+      const run = () => persistNow(idx, question);
+      saveChain.current = saveChain.current.then(run, run);
+      return saveChain.current;
+    }
+    saveTimers.current[qid] = window.setTimeout(() => {
+      delete saveTimers.current[qid];
+      const run = () => persistNow(idx, question);
+      saveChain.current = saveChain.current.then(run, run);
+    }, 500);
+    return Promise.resolve();
+  };
+
+  const flushAllSaves = async () => {
+    const qs = (qc.getQueryData(["attempt", attemptId]) as any)?.questions ?? questions;
+    for (const q of qs) {
+      const qid = q.questionId as string;
+      if (saveTimers.current[qid]) {
+        window.clearTimeout(saveTimers.current[qid]);
+        delete saveTimers.current[qid];
+      }
+    }
+    for (let i = 0; i < qs.length; i++) {
+      const q = qs[i];
+      if (!q?.answer) continue;
+      if (!hasAttempted(q.answer) && !(q.answer.textResponse ?? "").length) continue;
+      await persistNow(i, q);
+    }
+    await saveChain.current;
+  };
+
+  useEffect(() => {
+    return () => {
+      for (const t of Object.values(saveTimers.current)) window.clearTimeout(t);
+      for (const c of Object.values(saveControllers.current)) c.abort();
+    };
+  }, []);
+
   const goTo = async (nextIndex: number) => {
-    await persist({}, nextIndex);
+    await persist({}, index, current, { flush: true });
     setIndex(nextIndex);
   };
 
@@ -341,7 +410,7 @@ export function SessionPage() {
     if (!attemptId || submitting) return;
     setSubmitting(true);
     try {
-      await persist({});
+      await flushAllSaves();
       await api(`/api/assessment/attempts/${attemptId}/submit`, { method: "POST" });
       nav(`/assessment/complete/${attemptId}`);
     } catch {
@@ -408,9 +477,11 @@ export function SessionPage() {
             <QuestionRenderer
               snapshot={current.snapshot}
               answer={current.answer}
-              onChange={(next) => {
-                current.answer = next;
-                persist(next);
+              onChange={(next, opts) => {
+                void persist(next, index, current, opts);
+              }}
+              onFlush={() => {
+                void persist({}, index, current, { flush: true });
               }}
             />
           )}
@@ -423,21 +494,30 @@ export function SessionPage() {
                 Next question
               </Button>
             ) : (
-              <Button disabled={submitting} onClick={() => setConfirmSubmit(true)}>
+              <Button
+                disabled={submitting}
+                onClick={() => {
+                  void persist({}, index, current, { flush: true }).then(() => setConfirmSubmit(true));
+                }}
+              >
                 Review and submit sitting
               </Button>
             )}
             <Button
               variant="soft"
               disabled={submitting}
-              onClick={() => persist({ flagged: !current?.answer?.flagged })}
+              onClick={() => void persist({ flagged: !current?.answer?.flagged }, index, current, { flush: true })}
             >
               {current?.answer?.flagged ? "Unflag" : "Flag"}
             </Button>
             <Button
               variant="ghost"
               disabled={submitting}
-              onClick={() => persist({ selectedKeys: [], textResponse: "", sequence: [], matchPairs: {} })}
+              onClick={() =>
+                void persist({ selectedKeys: [], textResponse: "", sequence: [], matchPairs: {} }, index, current, {
+                  flush: true,
+                })
+              }
             >
               Clear response
             </Button>

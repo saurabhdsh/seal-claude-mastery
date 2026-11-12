@@ -304,6 +304,7 @@ export async function saveAnswer(
     flagged?: boolean;
     timeSpentMs?: number;
     currentIndex?: number;
+    clientSavedAt?: string;
   },
 ) {
   const attempt = await prisma.assessmentAttempt.findUnique({
@@ -319,6 +320,19 @@ export async function saveAnswer(
   const aq = attempt.questions.find((q) => q.questionId === payload.questionId);
   if (!aq) throw badRequest("Question is not part of this attempt");
 
+  const existing = await prisma.answer.findUnique({
+    where: { attemptId_questionId: { attemptId, questionId: payload.questionId } },
+  });
+  // Drop stale overlapping saves (early keystroke finishing after a longer paste/type).
+  if (existing?.clientSavedAt && payload.clientSavedAt) {
+    const incoming = new Date(payload.clientSavedAt).getTime();
+    const previous = existing.clientSavedAt.getTime();
+    if (Number.isFinite(incoming) && incoming < previous) {
+      return { saved: true, skippedStale: true, lastSavedAt: existing.lastSavedAt };
+    }
+  }
+
+  const clientSavedAt = payload.clientSavedAt ? new Date(payload.clientSavedAt) : new Date();
   const answer = await prisma.answer.upsert({
     where: { attemptId_questionId: { attemptId, questionId: payload.questionId } },
     create: {
@@ -331,6 +345,7 @@ export async function saveAnswer(
       textResponse: payload.textResponse,
       flagged: payload.flagged ?? false,
       timeSpentMs: payload.timeSpentMs ?? 0,
+      clientSavedAt,
     },
     update: {
       selectedKeys: payload.selectedKeys ?? [],
@@ -340,6 +355,7 @@ export async function saveAnswer(
       flagged: payload.flagged,
       timeSpentMs: payload.timeSpentMs,
       lastSavedAt: new Date(),
+      clientSavedAt,
     },
   });
 

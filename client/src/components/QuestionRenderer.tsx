@@ -24,11 +24,13 @@ export function QuestionRenderer({
   snapshot,
   answer,
   onChange,
+  onFlush,
   disabled,
 }: {
   snapshot: Snapshot;
   answer: Answer | null;
-  onChange: (next: Answer) => void;
+  onChange: (next: Answer, opts?: { flush?: boolean }) => void;
+  onFlush?: () => void;
   disabled?: boolean;
 }) {
   const options = snapshot.options ?? [];
@@ -71,13 +73,19 @@ export function QuestionRenderer({
     <div className="space-y-6">
       <QuestionLead snapshot={snapshot} />
       {snapshot.questionType === "SHORT_RESPONSE" ? (
-        <textarea
-          disabled={disabled}
-          className="min-h-[220px] w-full rounded-2xl border border-[var(--line)] bg-[var(--bg-elev)] p-4 text-sm leading-7"
-          value={answer?.textResponse ?? ""}
-          onChange={(e) => onChange({ ...answer, textResponse: e.target.value })}
-          placeholder="Write a structured technical response. Treat this as an architecture review."
-        />
+        <div className="space-y-2">
+          <textarea
+            disabled={disabled}
+            className="min-h-[280px] w-full rounded-2xl border border-[var(--line)] bg-[var(--bg-elev)] p-4 text-sm leading-7"
+            value={answer?.textResponse ?? ""}
+            onChange={(e) => onChange({ ...answer, textResponse: e.target.value })}
+            onBlur={() => onFlush?.()}
+            placeholder="Write a structured technical response covering every required area. Your full text is saved — do not rely on a partial outline only."
+          />
+          <div className="text-[11px] text-[var(--ink-muted)]">
+            {(answer?.textResponse ?? "").length.toLocaleString()} characters · full response is stored on save
+          </div>
+        </div>
       ) : (
         <ul className="space-y-2">
           {options.map((o) => {
