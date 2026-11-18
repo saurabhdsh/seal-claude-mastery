@@ -181,8 +181,7 @@ export async function buildResultExcel(attemptId: string) {
     ["Target level", r.attempt.assignment?.template?.targetLevel ?? "—"],
     ["Attempt started", timing.startedAt ? new Date(timing.startedAt).toLocaleString() : "—"],
     ["Attempt submitted", timing.submittedAt ? new Date(timing.submittedAt).toLocaleString() : "—"],
-    ["Time taken (wall clock)", timing.wallClockLabel],
-    ["Active answering time", timing.activeAnswerLabel],
+    ["Sitting duration (start to submit)", timing.wallClockLabel],
     ["Time budget", timing.timeBudgetSeconds != null ? formatDuration(timing.timeBudgetSeconds) : "—"],
     ["Questions answered", `${timing.questionsAnswered} / ${r.attempt.questions.length}`],
     ["Integrity events", timing.integrityEventCount],
@@ -299,7 +298,7 @@ export async function buildResultExcel(attemptId: string) {
     { header: "Correct?", width: 10 },
     { header: "Points", width: 10 },
     { header: "Max", width: 8 },
-    { header: "Time (s)", width: 10 },
+    { header: "Item timer (s)", width: 14 },
     { header: "Flagged", width: 10 },
     { header: "AI eval", width: 10 },
     { header: "Last saved", width: 22 },
@@ -394,7 +393,7 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
     }`,
   );
   doc.text(
-    `Time taken ${timing.wallClockLabel}  ·  Active answering ${timing.activeAnswerLabel}  ·  ${timing.questionsAnswered}/${r.attempt.questions.length} answered  ·  ${timing.integrityEventCount} integrity events`,
+    `Sitting duration ${timing.wallClockLabel} (start to submit)  ·  ${timing.questionsAnswered}/${r.attempt.questions.length} answered  ·  ${timing.integrityEventCount} integrity events`,
   );
   {
     const lm = (r.levelMastery ?? {}) as Record<string, unknown>;
@@ -495,9 +494,7 @@ export async function buildResultPdf(attemptId: string): Promise<{ buffer: Buffe
       width: 500,
     });
     doc.fontSize(9).fillColor(statusColor).text(
-      `${snap.moduleCode || q.question.module?.code || "—"} · ${q.assignedDifficulty.replaceAll("_", " ")} · ${correct} · ${pts} · ${
-        ans ? `${Math.round(ans.timeSpentMs / 1000)}s` : "—"
-      }`,
+      `${snap.moduleCode || q.question.module?.code || "—"} · ${q.assignedDifficulty.replaceAll("_", " ")} · Result: ${correct} · Score ${pts}`,
     );
     doc.fontSize(9).fillColor("#1d1d1f").text(`Options: ${allOptionsText(q)}`, { width: 500 });
     doc.fontSize(9).fillColor("#1d1d1f").text(`Correct answer: ${correctAnswerText(q)}`, { width: 500 });
@@ -571,8 +568,7 @@ export async function buildResultsListExcel() {
     { header: "Date", width: 14 },
     { header: "Started", width: 22 },
     { header: "Submitted", width: 22 },
-    { header: "Time taken", width: 14 },
-    { header: "Active answering", width: 16 },
+    { header: "Sitting duration", width: 16 },
     { header: "Outcome", width: 10 },
     { header: "Score", width: 10 },
     { header: "Threshold", width: 12 },
@@ -596,7 +592,6 @@ export async function buildResultsListExcel() {
       timing.startedAt ? new Date(timing.startedAt).toLocaleString() : "—",
       timing.submittedAt ? new Date(timing.submittedAt).toLocaleString() : "—",
       timing.wallClockLabel,
-      timing.activeAnswerLabel,
       passed ? "PASS" : "FAIL",
       Number(r.overallScore.toFixed(2)),
       passing,

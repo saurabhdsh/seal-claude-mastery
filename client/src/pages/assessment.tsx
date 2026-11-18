@@ -207,7 +207,8 @@ export function SessionPage() {
   const [confirmSubmit, setConfirmSubmit] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [answeredIds, setAnsweredIds] = useState<Set<string>>(() => new Set());
-  const lastTick = useRef<Record<string, number>>({});
+  const visibleMs = useRef<Record<string, number>>({});
+  const visibleSince = useRef<{ id: string; at: number } | null>(null);
   const hadTime = useRef(false);
   const saveTimers = useRef<Record<string, number>>({});
   const saveControllers = useRef<Record<string, AbortController>>({});
@@ -321,15 +322,24 @@ export function SessionPage() {
     return nextAnswer;
   };
 
+  const creditVisibleTime = (nextQuestionId?: string) => {
+    const open = visibleSince.current;
+    if (open) {
+      const add = Math.max(0, Date.now() - open.at);
+      visibleMs.current[open.id] = (visibleMs.current[open.id] ?? 0) + add;
+    }
+    visibleSince.current = nextQuestionId ? { id: nextQuestionId, at: Date.now() } : null;
+  };
+
   const persistNow = async (idx: number, question: any) => {
     if (!question || !attemptId) return;
     const qid = question.questionId as string;
+    if (visibleSince.current?.id === qid) creditVisibleTime(qid);
     saveControllers.current[qid]?.abort();
     const ac = new AbortController();
     saveControllers.current[qid] = ac;
     setSave(navigator.onLine ? "saving" : "offline");
-    const spent = (lastTick.current[qid] ?? 0) + 800;
-    lastTick.current[qid] = spent;
+    const spent = visibleMs.current[qid] ?? 0;
     const nextAnswer = question.answer ?? {};
     const clientSavedAt = new Date().toISOString();
     try {
@@ -401,7 +411,19 @@ export function SessionPage() {
     };
   }, []);
 
+  useEffect(() => {
+    const qid = questions[index]?.questionId as string | undefined;
+    if (!qid) return;
+    creditVisibleTime(qid);
+    return () => {
+      if (visibleSince.current?.id === qid) creditVisibleTime();
+    };
+    // Credit time only when the visible question changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index, questions[index]?.questionId]);
+
   const goTo = async (nextIndex: number) => {
+    creditVisibleTime(questions[nextIndex]?.questionId);
     await persist({}, index, current, { flush: true });
     setIndex(nextIndex);
   };

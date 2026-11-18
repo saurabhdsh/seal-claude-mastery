@@ -1581,19 +1581,16 @@ export function ResultDetailPage() {
           </div>
         </div>
       </header>
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Time taken</div>
+      <section className="grid gap-3 sm:grid-cols-3">
+        <div className="rounded-2xl border border-[var(--line)] px-4 py-3 sm:col-span-1">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Sitting duration</div>
           <div className="mt-1 text-lg tabular">{timing.wallClockLabel ?? "—"}</div>
-          <div className="mt-1 text-xs text-[var(--ink-muted)]">
+          <div className="mt-1 text-xs leading-5 text-[var(--ink-muted)]">
             Started {timing.startedAt ? new Date(timing.startedAt).toLocaleString() : "—"}
-          </div>
-        </div>
-        <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
-          <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Active answering</div>
-          <div className="mt-1 text-lg tabular">{timing.activeAnswerLabel ?? "—"}</div>
-          <div className="mt-1 text-xs text-[var(--ink-muted)]">
+            <br />
             Submitted {timing.submittedAt ? new Date(timing.submittedAt).toLocaleString() : "—"}
+            <br />
+            Allowed {timing.timeBudgetSeconds != null ? `${Math.round(timing.timeBudgetSeconds / 60)} min` : "—"}
           </div>
         </div>
         <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
@@ -1601,14 +1598,12 @@ export function ResultDetailPage() {
           <div className="mt-1 text-lg tabular">
             {timing.questionsAnswered ?? 0} / {(r.attempt.questions ?? []).length}
           </div>
-          <div className="mt-1 text-xs text-[var(--ink-muted)]">
-            Budget {timing.timeBudgetSeconds != null ? `${Math.round(timing.timeBudgetSeconds / 60)} min` : "—"}
-          </div>
+          <div className="mt-1 text-xs text-[var(--ink-muted)]">Items with a saved response</div>
         </div>
         <div className="rounded-2xl border border-[var(--line)] px-4 py-3">
           <div className="text-[11px] uppercase tracking-[0.14em] text-[var(--ink-muted)]">Integrity log</div>
           <div className="mt-1 text-lg tabular">{timing.integrityEventCount ?? r.attempt.integrityEvents?.length ?? 0}</div>
-          <div className="mt-1 text-xs text-[var(--ink-muted)]">Blur / tab / copy events</div>
+          <div className="mt-1 text-xs text-[var(--ink-muted)]">Window blur, tab switch, or paste</div>
         </div>
       </section>
       <ResultProfile result={r} passingScore={passing} />
@@ -1704,22 +1699,21 @@ export function ResultDetailPage() {
             }`}
           >
             <div className={`text-xs ${isIncorrect ? "text-red-700" : "text-[var(--ink-muted)]"}`}>
-              Q{item.position + 1} · {item.moduleCode} ·{" "}
+              Q{item.position + 1} · {item.moduleCode} · Result:{" "}
               {item.pendingWritten
                 ? "Pending AI eval"
                 : item.noResponse && item.displayIsCorrect === false
                   ? "Incorrect (no response)"
                   : item.displayIsCorrect == null
-                    ? "—"
+                    ? "Not scored"
                     : item.displayIsCorrect
                       ? "Correct"
                       : "Incorrect"}
-              {item.timeSpentMs != null ? ` · ${Math.round(item.timeSpentMs / 1000)}s` : ""}
               {item.maxPoints != null
-                ? ` · ${item.pointsAwarded == null ? "—" : Number(item.pointsAwarded).toFixed(1)}/${Number(item.maxPoints).toFixed(1)}`
+                ? ` · Score ${item.pointsAwarded == null ? "—" : Number(item.pointsAwarded).toFixed(1)}/${Number(item.maxPoints).toFixed(1)}`
                 : ""}
-              {item.selectedKeys?.length ? ` · selected ${item.selectedKeys.join(",")}` : ""}
-              {item.correctKeys?.length ? ` · key ${item.correctKeys.join(",")}` : ""}
+              {item.selectedKeys?.length ? ` · Selected ${item.selectedKeys.join(",")}` : ""}
+              {item.correctKeys?.length ? ` · Answer key ${item.correctKeys.join(",")}` : ""}
               {item.markMismatch ? " · stored mark disagreed" : ""}
             </div>
             <p className="mt-2 text-sm leading-6">{item.questionText}</p>
